@@ -1,0 +1,9 @@
+libraries:
+- name: local
+  type: local
+  config:
+    path: /cortex/music/lib
+
+patterns:
+- /(?P<album>[^/]+)/(?P<disc>\d+)-0*(?P<track>\d+) - (?P<title>.*)\.[\w\d]+$
+- /(?P<album>[^/]+)/(?P<artist>.*) - (?P<title>.*)\.[\w\d]+$

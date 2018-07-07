@@ -43,8 +43,12 @@ func (self *Entry) SetMimeType(mimetype string) {
 	self.mimeOverride = mimetype
 }
 
+func (self *Entry) FullPath() string {
+	return `/` + strings.TrimPrefix(path.Join(`/`, self.parent, self.Path), `/`)
+}
+
 func (self *Entry) String() string {
-	out := fmt.Sprintf("[% 8v] %v", self.Type, path.Join(`/`, self.parent, self.Path))
+	out := fmt.Sprintf("[% 8v] %v", self.Type, self.FullPath())
 
 	if self.Metadata.Title != `` {
 		out += ":\nMetadata:\n"
@@ -74,6 +78,68 @@ func (self *Entry) String() string {
 	}
 
 	return out
+}
+
+func (self *Entry) IsHidden() bool {
+	if strings.HasPrefix(path.Base(self.Path), `.`) {
+		return true
+	} else {
+		return false
+	}
+}
+
+func (self *Entry) IsContainer() bool {
+	switch self.Type {
+	case FolderEntry, PlaylistEntry:
+		return true
+	default:
+		return false
+	}
+}
+
+func (self *Entry) IsContent() bool {
+	switch self.Type {
+	case AudioEntry, VideoEntry:
+		return true
+	default:
+		return false
+	}
+}
+
+func (self *Entry) Name() string {
+	if v := self.Get(`Title`); !v.IsNil() {
+		return v.String()
+	} else {
+		return path.Base(self.Path)
+	}
+}
+
+func (self *Entry) Get(field string) typeutil.Variant {
+	switch f := strings.ToLower(field); f {
+	case `filename`, `path`:
+		return typeutil.V(self.FullPath())
+
+	case `name`:
+		return typeutil.V(self.Name())
+
+	case `track`, `disc`, `year`:
+		if v := self.M().Get(field); v.Int() > 0 {
+			return v
+		} else if v := self.M().Get(strings.ToLower(field)); v.Int() > 0 {
+			return v
+		} else {
+			return typeutil.V(nil)
+		}
+
+	default:
+		if v := self.M().Get(field); !v.IsNil() {
+			return v
+		} else if v := self.M().Get(strings.ToLower(field)); !v.IsNil() {
+			return v
+		} else {
+			return typeutil.V(nil)
+		}
+	}
 }
 
 func (self *Entry) MimeType() string {

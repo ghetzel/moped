@@ -57,34 +57,46 @@ func (self *reply) AddReply(reply *reply) {
 	self.Subreplies = append(self.Subreplies, reply)
 }
 
-func (self *reply) String() string {
+func (self *reply) stringify(in interface{}) string {
 	out := make([]string, 0)
 
-	if self.Body != nil {
-		if typeutil.IsMap(self.Body) {
-			maputil.Walk(self.Body, func(value interface{}, path []string, isLeaf bool) error {
+	if in != nil {
+		if typeutil.IsMap(in) {
+			maputil.Walk(in, func(value interface{}, path []string, isLeaf bool) error {
 				key := strings.Join(path, `.`)
 
 				if typeutil.IsArray(value) {
 					for _, v := range sliceutil.Sliceify(value) {
-						out = append(out, key+`: `+strings.TrimSpace(fmt.Sprintf("%v", v)))
+						out = append(out, fmt.Sprintf(
+							"%s: %s",
+							key,
+							strings.TrimSpace(self.stringify(v)),
+						))
 					}
 
 					return maputil.SkipDescendants
 				} else if isLeaf {
-					out = append(out, key+`: `+strings.TrimSpace(fmt.Sprintf("%v", value)))
+					out = append(out, fmt.Sprintf(
+						"%s: %s",
+						key,
+						strings.TrimSpace(self.stringify(value)),
+					))
 				}
 
 				return nil
 			})
-		} else if s, err := stringutil.ToString(self.Body); err == nil && s != `` {
+		} else if typeutil.IsArray(in) {
+			for _, v := range sliceutil.Sliceify(in) {
+				out = append(out, self.stringify(v))
+			}
+		} else if s, err := stringutil.ToString(in); err == nil && s != `` {
 			out = []string{s}
 		}
 	}
 
 	if self.Command != nil {
 		if self.IsError() {
-			return fmt.Sprintf("ACK [5@1] {%s} %v\n", self.Command.Command, self.Body)
+			return fmt.Sprintf("ACK [5@1] {%s} %v\n", self.Command.Command, in)
 		} else {
 			if len(self.Subreplies) > 0 {
 				for _, subreply := range self.Subreplies {
@@ -109,4 +121,8 @@ func (self *reply) String() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (self *reply) String() string {
+	return self.stringify(self.Body)
 }

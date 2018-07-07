@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/stringutil"
+	"github.com/kballard/go-shellquote"
 )
 
 var rxWhitespace = regexp.MustCompile(`\s+`)
@@ -56,6 +57,12 @@ CommandLoop:
 	for scanner.Scan() {
 		if line := scanner.Text(); line != `` {
 			c, args := self.parse(self.conn, line)
+
+			if c == `` {
+				log.Errorf("Malformed command, disconnecting")
+				return
+			}
+
 			command := &cmd{
 				Command:   c,
 				Arguments: args,
@@ -123,8 +130,18 @@ CommandLoop:
 }
 
 func (self *Client) parse(w io.Writer, line string) (string, []string) {
-	args := rxWhitespace.Split(line, -1)
-	return args[0], args[1:]
+	if args, err := shellquote.Split(line); err == nil {
+		cmd := args[0]
+		args = args[1:]
+
+		for i, arg := range args {
+			args[i] = stringutil.Unwrap(arg, `"`, `"`)
+		}
+
+		return cmd, args
+	} else {
+		return ``, nil
+	}
 }
 
 func (self *Client) writeReply(w io.Writer, reply *reply) error {
@@ -139,7 +156,6 @@ func (self *Client) writeReply(w io.Writer, reply *reply) error {
 	}
 
 	out := []byte(body + "\n")
-	log.Dump(out)
 
 	_, err := w.Write(out)
 	return err

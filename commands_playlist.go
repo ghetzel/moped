@@ -11,9 +11,6 @@ func (self *Moped) cmdPlaylistQueries(c *cmd) *reply {
 	case `playlist`, `playlistinfo`:
 		return NewReply(c, self.playlist.Info())
 
-	case `listplaylistinfo`:
-		return NewReply(c, fmt.Errorf("No such playlist"))
-
 	default:
 		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
 	}

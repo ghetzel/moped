@@ -1,94 +1,37 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"net"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/stringutil"
-	"github.com/ghetzel/go-stockutil/typeutil"
 	"github.com/ghetzel/moped/library"
 	"github.com/ghetzel/moped/metadata"
 )
 
 var once sync.Once
 
-type cmd struct {
-	Command   string
-	Arguments []string
-	Reply     *reply
-}
-
-type reply struct {
-	Command    *cmd
-	Body       interface{}
-	Subreplies []*reply
-	Parent     *reply
-}
-
-func NewReply(cmd *cmd, body interface{}) *reply {
-	return &reply{
-		Command: cmd,
-		Body:    body,
-	}
-}
-
-func (self *reply) AddReply(reply *reply) {
-	reply.Parent = self
-	self.Subreplies = append(self.Subreplies, reply)
-}
-
-func (self *reply) String() string {
-	var out string
-
-	if self.Body != nil {
-		if typeutil.IsMap(self.Body) {
-			out = maputil.Join(self.Body, `: `, "\n")
-		} else if s, err := stringutil.ToString(self.Body); err == nil {
-			out = s
-		}
-	}
-
-	if self.Command != nil {
-		if err, ok := self.Body.(error); ok {
-			return fmt.Sprintf("ACK [5@1] {%s} %v\n", self.Command.Command, err)
-		} else {
-			if len(self.Subreplies) > 0 {
-				for _, subreply := range self.Subreplies {
-					if o := subreply.String(); strings.TrimSpace(o) != `` {
-						out += o + "\n"
-					}
-
-					if self.Command.Command == `command_list_ok_begin` {
-						out += "list_OK\n"
-					}
-				}
-			}
-		}
-	} else {
-		return out + "\n"
-	}
-
-	if self.Parent == nil {
-		out += "OK\n"
-	}
-
-	return out
+type playmode struct {
+	Consume   bool
+	Random    bool
+	Repeat    bool
+	Single    bool
+	Crossfade int
 }
 
 type Moped struct {
 	libraries map[string]library.Library
 	playing   *PlayableAudio
-	playlist  library.EntryList
-	index     int
+	playlist  Playlist
+	playmode  playmode
+	commands  map[string]cmdHandler
+	clients   sync.Map
 }
 
 func NewMoped() *Moped {
@@ -96,9 +39,72 @@ func NewMoped() *Moped {
 		metadata.SetupMimeTypes()
 	})
 
-	return &Moped{
+	moped := &Moped{
 		libraries: make(map[string]library.Library),
 	}
+
+	moped.commands = map[string]cmdHandler{
+		`status`:       moped.cmdStatus,
+		`stats`:        moped.cmdStats,
+		`currentsong`:  moped.cmdCurrentSong,
+		`commands`:     moped.cmdReflectCommands,
+		`notcommands`:  moped.cmdReflectNotCommands,
+		`urlhandlers`:  moped.cmdReflectUrlHandlers,
+		`decoders`:     moped.cmdReflectDecoders,
+		`consume`:      moped.cmdToggles,
+		`random`:       moped.cmdToggles,
+		`repeat`:       moped.cmdToggles,
+		`single`:       moped.cmdToggles,
+		`next`:         moped.cmdPlayControl,
+		`previous`:     moped.cmdPlayControl,
+		`pause`:        moped.cmdPlayControl,
+		`play`:         moped.cmdPlayControl,
+		`playid`:       moped.cmdPlayControl,
+		`stop`:         moped.cmdPlayControl,
+		`seek`:         moped.cmdPlayControl,
+		`seekid`:       moped.cmdPlayControl,
+		`seekcur`:      moped.cmdPlayControl,
+		`playlist`:     moped.cmdPlaylistQueries,
+		`playlistinfo`: moped.cmdPlaylistQueries,
+		// `playlistfind`:   moped.cmdPlaylistQueries,
+		// `playlistid`:     moped.cmdPlaylistQueries,
+		// `playlistsearch`: moped.cmdPlaylistQueries,
+		// `plchanges`:      moped.cmdPlaylistQueries,
+		// `plchangesposid`: moped.cmdPlaylistQueries,
+		`listplaylistinfo`: moped.cmdPlaylistQueries,
+		`add`:              moped.cmdPlaylistControl,
+		`addid`:            moped.cmdPlaylistControl,
+		`clear`:            moped.cmdPlaylistControl,
+		`delete`:           moped.cmdPlaylistControl,
+		`deleteid`:         moped.cmdPlaylistControl,
+		`move`:             moped.cmdPlaylistControl,
+		`moveid`:           moped.cmdPlaylistControl,
+		`shuffle`:          moped.cmdPlaylistControl,
+		`swap`:             moped.cmdPlaylistControl,
+		`swapid`:           moped.cmdPlaylistControl,
+		// `prio`:       moped.cmdPlaylistControl,
+		// `prioid`:     moped.cmdPlaylistControl,
+		// `rangeid`:    moped.cmdPlaylistControl,
+		// `addtagid`:   moped.cmdPlaylistControl,
+		// `cleartagid`: moped.cmdPlaylistControl,
+		// TODO: https://www.musicpd.org/doc/protocol/playlist_files.html
+		// TODO: https://www.musicpd.org/doc/protocol/database.html
+		// NOTSUREIFWANT: https://www.musicpd.org/doc/protocol/mount.html
+		// NOTSUREIFWANT: https://www.musicpd.org/doc/protocol/stickers.html
+		// NOTSUREIFWANT: https://www.musicpd.org/doc/protocol/partition_commands.html
+		`close`:    moped.cmdConnection,
+		`kill`:     moped.cmdConnection,
+		`password`: moped.cmdConnection,
+		`ping`:     moped.cmdConnection,
+		`tagtypes`: moped.cmdConnection,
+		`outputs`:  moped.cmdAudio,
+		// `disableoutput`: moped.cmdAudio,
+		// `enableoutput`:  moped.cmdAudio,
+		// `toggleoutput`:  moped.cmdAudio,
+		// `outputset`:     moped.cmdAudio,
+	}
+
+	return moped
 }
 
 func (self *Moped) AddLibrary(name string, lib library.Library) error {
@@ -201,145 +207,37 @@ func (self *Moped) Get(entryPath string) (*library.Entry, error) {
 	}
 }
 
-func (self *Moped) handleClient(conn net.Conn) {
-	defer conn.Close()
-	scanner := bufio.NewScanner(conn)
-	commands := make([]*cmd, 0)
+func (self *Moped) DropClient(id string) error {
+	if clientI, ok := self.clients.Load(id); ok {
+		defer func(cid string) {
+			self.clients.Delete(cid)
+			log.Debugf("Client %v removed", cid)
+		}(id)
 
-	var listCmd *cmd
-	var inList bool
-
-	if err := self.writeReply(conn, NewReply(nil, `OK MPD 0.20.0`)); err != nil {
-		log.Error(err)
-		return
-	}
-
-CommandLoop:
-	for scanner.Scan() {
-		if line := scanner.Text(); line != `` {
-			c, args := self.parse(conn, line)
-			command := &cmd{
-				Command:   c,
-				Arguments: args,
-			}
-
-			log.Debugf("CMD: %v", line)
-
-			switch c {
-			case `command_list_begin`:
-				listCmd = command
-				inList = true
-				continue CommandLoop
-			case `command_list_ok_begin`:
-				listCmd = command
-				inList = true
-				continue CommandLoop
-			}
-
-			if c != `command_list_end` {
-				commands = append(commands, command)
-			} else {
-				inList = false
-			}
-
-			if !inList {
-				self.execute(conn, commands)
-
-				if listCmd != nil {
-					listReply := NewReply(listCmd, ``)
-
-					for _, c := range commands {
-						listReply.AddReply(c.Reply)
-					}
-
-					self.writeReply(conn, listReply)
-					listCmd = nil
-				} else {
-					for _, c := range commands {
-						self.writeReply(conn, c.Reply)
-					}
-				}
-			}
-		}
+		return clientI.(*Client).Close()
+	} else {
+		return nil
 	}
 }
 
-func (self *Moped) parse(w io.Writer, line string) (string, []string) {
-	args := regexp.MustCompile(`\s+`).Split(line, -1)
-	return args[0], args[1:]
+func (self *Moped) handleClient(conn net.Conn) {
+	client := NewClient(self, conn)
+	self.clients.Store(client.ID(), client)
+	log.Debugf("Client %v connected via %v", client.ID(), conn.RemoteAddr())
+
+	defer client.Run()
 }
 
 func (self *Moped) execute(w io.Writer, commands []*cmd) {
 	for _, c := range commands {
-		log.Debugf("EXEC: %v %v", c.Command, c.Arguments)
 		c.Reply = self.executeCommand(w, c)
 	}
 }
 
 func (self *Moped) executeCommand(w io.Writer, c *cmd) *reply {
-	switch c.Command {
-	case `currentsong`:
-		status := make(map[string]interface{})
-
-		if self.index < len(self.playlist) {
-			current := self.playlist[self.index]
-			status[`file`] = current.Path
-
-			if v := current.Metadata.Year; v > 0 {
-				status[`Date`] = v
-			}
-
-			if v := current.Metadata.Track; v > 0 {
-				status[`Track`] = v
-			}
-
-			if v := current.Metadata.Album; v != `` {
-				status[`Album`] = v
-			}
-
-			if v := current.Metadata.Artist; v != `` {
-				status[`Artist`] = v
-			}
-
-			if v := current.Metadata.Title; v != `` {
-				status[`Title`] = v
-			}
-
-			if v := current.Metadata.Duration; v > 0 {
-				status[`Time`] = int(v.Round(time.Second) / time.Second)
-				status[`duration`] = float64(v.Round(time.Millisecond) / time.Millisecond)
-			}
-
-			status[`Pos`] = self.index
-			status[`Id`] = self.index
-
-			return NewReply(c, status)
-		} else {
-			return NewReply(c, nil)
-		}
-
-	case `status`:
-		return NewReply(c, map[string]interface{}{
-			`volume`:         -1,
-			`repeat`:         0,
-			`random`:         0,
-			`single`:         0,
-			`consume`:        0,
-			`playlist`:       2,
-			`playlistlength`: len(self.playlist),
-			`mixrampdb`:      0.000000,
-			`state`:          `stop`,
-			`song`:           3,
-			`songid`:         4,
-			`nextsong`:       4,
-			`nextsongid`:     5,
-		})
+	if handler, ok := self.commands[c.Command]; ok {
+		return handler(c)
+	} else {
+		return NewReply(c, fmt.Errorf("Unsupported command '%v'", c.Command))
 	}
-
-	return NewReply(c, fmt.Errorf("Unsupported command '%v'", c.Command))
-}
-
-func (self *Moped) writeReply(w io.Writer, reply *reply) error {
-	_, err := w.Write([]byte(reply.String()))
-	return err
 }

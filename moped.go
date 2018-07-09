@@ -92,6 +92,7 @@ func NewMoped() *Moped {
 	moped.commands = map[string]cmdHandler{
 		`status`:       moped.cmdStatus,
 		`stats`:        moped.cmdStats,
+		`idle`:         moped.cmdIdle,
 		`currentsong`:  moped.cmdCurrentSong,
 		`commands`:     moped.cmdReflectCommands,
 		`notcommands`:  moped.cmdReflectNotCommands,

@@ -172,7 +172,7 @@ func (self *Entry) Seek(offset int64, whence int) (int64, error) {
 	if seeker, ok := self.source.(io.Seeker); ok {
 		return seeker.Seek(offset, whence)
 	} else {
-		return 0, fmt.Errorf("Underlying data source is not seekable")
+		return 0, fmt.Errorf("Underlying data source (%T) is not seekable", self.source)
 	}
 }
 

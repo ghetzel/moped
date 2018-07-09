@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ghetzel/go-stockutil/typeutil"
 )
@@ -38,28 +39,28 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 
 	switch c.Command {
 	case `next`:
-		err = self.playlist.Next()
+		err = self.queue.Next()
 
 	case `previous`:
-		err = self.playlist.Previous()
+		err = self.queue.Previous()
 
 	case `pause`:
 		if arg.IsNil() || arg.Bool() {
-			err = self.playlist.Pause()
+			err = self.Pause()
 		} else {
-			err = self.playlist.Resume()
+			err = self.Resume()
 		}
 	case `play`, `playid`:
 		if arg.Value != nil {
-			if err := self.playlist.Jump(int(arg.Int())); err != nil {
+			if err := self.queue.Jump(int(arg.Int())); err != nil {
 				return NewReply(c, err)
 			}
 		}
 
-		err = self.playlist.Play()
+		err = self.queue.Play()
 
 	case `stop`:
-		err = self.playlist.Stop()
+		err = self.Stop()
 
 	case `seek`, `seekid`:
 		if len(c.Arguments) < 2 {
@@ -67,7 +68,7 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 		}
 
 		if id := int(arg.Int()); id > 0 {
-			if err := self.playlist.Jump(id); err != nil {
+			if err := self.queue.Jump(id); err != nil {
 				return NewReply(c, err)
 			}
 		}
@@ -79,8 +80,8 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 			return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
 		}
 
-		offset := c.Arg(1).Float()
-		err = self.playlist.Seek(offset)
+		offset := time.Duration(c.Arg(1).Float()) * time.Second
+		err = self.Seek(offset)
 
 	default:
 		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))

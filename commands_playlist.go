@@ -9,8 +9,23 @@ import (
 func (self *Moped) cmdPlaylistQueries(c *cmd) *reply {
 	switch c.Command {
 	case `playlist`, `playlistinfo`:
-		return NewReply(c, self.playlist.Info())
+		return NewReply(c, self.queue.Info())
 
+	case `playlistid`:
+		items := self.queue.Info()
+
+		if v := c.Arg(0); !v.IsNil() {
+			if id := int(v.Int()); id < len(items) {
+				return NewReply(c, items[id])
+			} else {
+				return NewReply(c, fmt.Errorf("No such song"))
+			}
+		} else {
+			return NewReply(c, items)
+		}
+
+	case `listplaylists`:
+		return NewReply(c, nil)
 	default:
 		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
 	}
@@ -20,7 +35,7 @@ func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 	var err error
 	switch c.Command {
 	case `add`:
-		err = self.playlist.Append(c.Arg(0).String())
+		err = self.queue.Append(c.Arg(0).String())
 
 	case `addid`:
 		if len(c.Arguments) < 1 {
@@ -33,15 +48,15 @@ func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 			position = int(p.Int())
 		}
 
-		err = self.playlist.Insert(c.Arg(0).String(), position)
+		err = self.queue.Insert(c.Arg(0).String(), position)
 
 	case `clear`:
-		self.playlist.Stop()
-		self.playlist = Playlist{}
+		self.Stop()
+		self.queue = NewQueue(self)
 
 	case `delete`, `deleteid`:
 		if start, end, rerr := getRangeFromCmd(c); err == nil {
-			err = self.playlist.Remove(start, end)
+			err = self.queue.Remove(start, end)
 		} else {
 			err = rerr
 		}
@@ -50,19 +65,19 @@ func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 		if len(c.Arguments) < 2 {
 			err = fmt.Errorf("Must specify %q/%q and %q", `FROM`, `START:END`, `TO`)
 		} else if start, end, rerr := getRangeFromCmd(c); err == nil {
-			err = self.playlist.Move(start, end, int(c.Arg(1).Int()))
+			err = self.queue.Move(start, end, int(c.Arg(1).Int()))
 		} else {
 			err = rerr
 		}
 
 	case `shuffle`:
-		err = self.playlist.Shuffle()
+		err = self.queue.Shuffle()
 
 	case `swap`, `swapid`:
 		if len(c.Arguments) < 2 {
 			err = fmt.Errorf("Must specify %q and %q", `SONG1`, `SONG2`)
 		} else {
-			err = self.playlist.Swap(
+			err = self.queue.Swap(
 				int(c.Arg(0).Int()),
 				int(c.Arg(1).Int()),
 			)

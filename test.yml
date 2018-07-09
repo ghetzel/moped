@@ -2,6 +2,7 @@ libraries:
 - name: local
   type: local
   config:
+    title: 'Local Files'
     path: /cortex/music/lib
 
 patterns:

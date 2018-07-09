@@ -41,3 +41,11 @@ func (self *LazyReader) Close() error {
 
 	return nil
 }
+
+func (self *LazyReader) Seek(offset int64, whence int) (int64, error) {
+	if seeker, ok := self.readCloser.(io.Seeker); ok {
+		return seeker.Seek(offset, whence)
+	} else {
+		return 0, fmt.Errorf("source not seekable")
+	}
+}

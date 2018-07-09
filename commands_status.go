@@ -1,6 +1,9 @@
 package main
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type cmdHandler func(*cmd) *reply
 
@@ -30,27 +33,43 @@ type cmdHandler func(*cmd) *reply
 // - error:          if there is an error, returns message here
 //
 func (self *Moped) cmdStatus(c *cmd) *reply {
-	return NewReply(c, map[string]interface{}{
+	data := map[string]interface{}{
 		`volume`:         -1,
 		`repeat`:         b2i(self.playmode.Repeat),
 		`random`:         b2i(self.playmode.Random),
 		`single`:         b2i(self.playmode.Single),
 		`consume`:        b2i(self.playmode.Consume),
-		`playlist`:       2,
-		`playlistlength`: self.playlist.Len(),
+		`playlist`:       1,
+		`playlistlength`: self.queue.Len(),
 		`mixrampdb`:      `0.000000`,
-		`state`:          `stop`,
-		`song`:           3,
-		`songid`:         4,
+		`state`:          self.state,
+		`song`:           self.queue.Index(),
+		`songid`:         self.queue.Index(),
 		`nextsong`:       4,
 		`nextsongid`:     5,
-	})
+	}
+
+	switch self.state {
+	case StatePlaying, StatePaused:
+		position := self.Position()
+		length := self.Length()
+
+		data[`time`] = fmt.Sprintf(
+			"%d:%d",
+			int(position.Truncate(time.Second)/time.Second),
+			int(length.Truncate(time.Second)/time.Second),
+		)
+		data[`elapsed`] = float64(position / time.Second)
+		data[`duration`] = float64(length / time.Second)
+	}
+
+	return NewReply(c, data)
 }
 
 func (self *Moped) cmdCurrentSong(c *cmd) *reply {
 	status := make(map[string]interface{})
 
-	if current, ok := self.playlist.Current(); ok {
+	if current, ok := self.queue.Current(); ok {
 		status[`file`] = current.Path
 
 		if v := current.Metadata.Year; v > 0 {
@@ -78,8 +97,8 @@ func (self *Moped) cmdCurrentSong(c *cmd) *reply {
 			status[`duration`] = float64(v.Round(time.Millisecond) / time.Millisecond)
 		}
 
-		status[`Pos`] = self.playlist.Index()
-		status[`Id`] = self.playlist.Index()
+		status[`Pos`] = self.queue.Index()
+		status[`Id`] = self.queue.Index()
 
 		return NewReply(c, status)
 	} else {
@@ -106,12 +125,12 @@ func b2i(in bool) int {
 //
 func (self *Moped) cmdStats(c *cmd) *reply {
 	return NewReply(c, map[string]interface{}{
-		`artists`:     0,
-		`albums`:      0,
-		`songs`:       0,
-		`uptime`:      0,
+		`artists`:     1,
+		`albums`:      1,
+		`songs`:       1,
+		`uptime`:      int(time.Since(self.startedAt).Seconds()),
 		`db_playtime`: 0,
-		`db_update`:   0,
+		`db_update`:   time.Now().Unix(),
 		`playtime`:    0,
 	})
 }

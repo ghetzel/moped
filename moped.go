@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
@@ -25,13 +26,34 @@ type playmode struct {
 	Crossfade int
 }
 
+type Callback func(*Moped)
+type StateCallback func(playstate, playstate, *Moped)
+
+type playstate string
+
+const (
+	StateStopped playstate = `stop`
+	StatePaused            = `pause`
+	StatePlaying           = `play`
+)
+
+var MonitorInterval = 500 * time.Millisecond
+
 type Moped struct {
-	libraries map[string]library.Library
-	playing   *PlayableAudio
-	playlist  Playlist
-	playmode  playmode
-	commands  map[string]cmdHandler
-	clients   sync.Map
+	libraries          map[string]library.Library
+	playing            *PlayableAudio
+	queue              *Queue
+	state              playstate
+	playmode           playmode
+	commands           map[string]cmdHandler
+	clients            sync.Map
+	startedAt          time.Time
+	onAudioStart       Callback
+	onStateChange      StateCallback
+	aboutToEndDuration time.Duration
+	onAudioAboutToEnd  Callback
+	onAudioEnd         Callback
+	aboutToEndFired    bool
 }
 
 func NewMoped() *Moped {
@@ -41,7 +63,29 @@ func NewMoped() *Moped {
 
 	moped := &Moped{
 		libraries: make(map[string]library.Library),
+		state:     StateStopped,
+		onAudioEnd: func(m *Moped) {
+			if m.queue.HasNext() {
+				log.Debugf("Track ended, playing next")
+				m.queue.Next()
+			} else {
+				log.Debugf("Track ended, reached end of queue")
+				m.Stop()
+			}
+		},
+		onStateChange: func(is playstate, was playstate, m *Moped) {
+			log.Debugf("State transition: %v -> %v", was, is)
+		},
+		onAudioStart: func(m *Moped) {
+			log.Debugf("Playing audio at %vHz", m.playing.Format.SampleRate.N(time.Second))
+		},
+		aboutToEndDuration: (3 * time.Second),
+		onAudioAboutToEnd: func(m *Moped) {
+			log.Debugf("Audio about to end")
+		},
 	}
+
+	moped.queue = NewQueue(moped)
 
 	moped.commands = map[string]cmdHandler{
 		`status`:       moped.cmdStatus,
@@ -66,11 +110,12 @@ func NewMoped() *Moped {
 		`seekcur`:      moped.cmdPlayControl,
 		`playlist`:     moped.cmdPlaylistQueries,
 		`playlistinfo`: moped.cmdPlaylistQueries,
+		`playlistid`:   moped.cmdPlaylistQueries,
 		// `playlistfind`:   moped.cmdPlaylistQueries,
-		// `playlistid`:     moped.cmdPlaylistQueries,
 		// `playlistsearch`: moped.cmdPlaylistQueries,
 		// `plchanges`:      moped.cmdPlaylistQueries,
 		// `plchangesposid`: moped.cmdPlaylistQueries,
+		`listplaylists`:    moped.cmdPlaylistQueries,
 		`listplaylistinfo`: moped.cmdDbBrowse,
 		`lsinfo`:           moped.cmdDbBrowse,
 		`add`:              moped.cmdPlaylistControl,
@@ -108,6 +153,27 @@ func NewMoped() *Moped {
 	return moped
 }
 
+func (self *Moped) OnAudioStart(cb Callback) {
+	self.onAudioStart = cb
+}
+
+func (self *Moped) OnStateChange(cb StateCallback) {
+	self.onStateChange = cb
+}
+
+func (self *Moped) OnAudioAboutToEnd(timeFromEnd time.Duration, cb Callback) {
+	if timeFromEnd < (2 * MonitorInterval) {
+		timeFromEnd = (2 * MonitorInterval)
+	}
+
+	self.aboutToEndDuration = timeFromEnd
+	self.onAudioAboutToEnd = cb
+}
+
+func (self *Moped) OnAudioEnd(cb Callback) {
+	self.onAudioEnd = cb
+}
+
 func (self *Moped) AddLibrary(name string, lib library.Library) error {
 	if _, ok := self.libraries[name]; ok {
 		return fmt.Errorf("library '%v' is already registered", name)
@@ -122,6 +188,9 @@ func (self *Moped) AddLibrary(name string, lib library.Library) error {
 
 func (self *Moped) Listen(network string, address string) error {
 	if listener, err := net.Listen(network, address); err == nil {
+		self.startedAt = time.Now()
+		go self.monitor()
+
 		log.Infof("Listening on %v", listener.Addr())
 
 		for {
@@ -240,5 +309,30 @@ func (self *Moped) executeCommand(w io.Writer, c *cmd) *reply {
 		return handler(c)
 	} else {
 		return NewReply(c, fmt.Errorf("Unsupported command '%v'", c.Command))
+	}
+}
+
+func (self *Moped) monitor() {
+	for {
+		switch self.state {
+		case StatePlaying:
+			if self.onAudioAboutToEnd != nil && !self.aboutToEndFired {
+				if self.Position() >= (self.Length() - self.aboutToEndDuration) {
+					self.onAudioAboutToEnd(self)
+					self.aboutToEndFired = true
+				}
+			}
+		}
+
+		time.Sleep(MonitorInterval)
+	}
+}
+
+func (self *Moped) setState(state playstate) {
+	was := self.state
+	self.state = state
+
+	if self.onStateChange != nil {
+		self.onStateChange(self.state, was, self)
 	}
 }

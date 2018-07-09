@@ -54,6 +54,7 @@ type Moped struct {
 	onAudioAboutToEnd  Callback
 	onAudioEnd         Callback
 	aboutToEndFired    bool
+	autoAdvance        bool
 }
 
 func NewMoped() *Moped {
@@ -62,10 +63,11 @@ func NewMoped() *Moped {
 	})
 
 	moped := &Moped{
-		libraries: make(map[string]library.Library),
-		state:     StateStopped,
+		libraries:   make(map[string]library.Library),
+		state:       StateStopped,
+		autoAdvance: true,
 		onAudioEnd: func(m *Moped) {
-			if m.queue.HasNext() {
+			if m.autoAdvance && m.queue.HasNext() {
 				log.Debugf("Track ended, playing next")
 				m.queue.Next()
 			} else {

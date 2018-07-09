@@ -68,7 +68,12 @@ CommandLoop:
 				Arguments: args,
 			}
 
-			// log.Debugf("[%v] CMD: %v", self.ID(), line)
+			switch c {
+			case `status`, `outputs`:
+				break
+			default:
+				log.Debugf("[%v] CMD: %v", self.ID(), line)
+			}
 
 			switch c {
 			case `command_list_begin`:

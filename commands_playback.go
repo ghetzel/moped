@@ -37,6 +37,8 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 
 	arg := c.Arg(0)
 
+	self.autoAdvance = (c.Command != `stop`)
+
 	switch c.Command {
 	case `next`:
 		err = self.queue.Next()

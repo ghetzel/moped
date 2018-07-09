@@ -117,8 +117,6 @@ func newDecodeStream(cmd *exec.Cmd, source io.ReadCloser) (*decode, beep.Format,
 }
 
 func (self *decode) start() error {
-	log.Debugf("starting %v", self.cmd.Args)
-
 	go func() {
 		defer self.source.Close()
 		io.Copy(self.cmdin, self.source)
@@ -171,7 +169,6 @@ func (self *decode) populateSamples(samples [][2]float64, data []byte) (int, boo
 	}
 
 	self.pos += len(samples)
-	log.Debugf("pos now %d", self.pos)
 
 	return len(samples), true
 }

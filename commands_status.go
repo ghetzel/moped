@@ -155,5 +155,5 @@ func (self *Moped) cmdStats(c *cmd) *reply {
 //                    this event is only emitted when the queue is empty
 //
 func (self *Moped) cmdIdle(c *cmd) *reply {
-
+	return NewReply(c, fmt.Errorf("Not Implemented"))
 }

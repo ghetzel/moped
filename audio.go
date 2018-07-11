@@ -147,11 +147,9 @@ func (self *Moped) setPaused(on bool) error {
 
 func (self *Moped) Stop() error {
 	if self.playing != nil {
-		defer func() {
-			close(self.playing.PlayChan)
-			self.playing = nil
-			self.setState(StateStopped)
-		}()
+		close(self.playing.PlayChan)
+		self.playing = nil
+		self.setState(StateStopped)
 
 		return self.playing.Stream.Close()
 	}

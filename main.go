@@ -4,6 +4,8 @@ import (
 	"fmt"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/ghetzel/cli"
 	"github.com/ghetzel/go-stockutil/log"
@@ -103,6 +105,19 @@ func main() {
 			},
 		},
 	}
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-sigc
+
+		if application != nil {
+			application.Stop()
+		}
+
+		log.Debugf("exit")
+		os.Exit(-1)
+	}()
 
 	app.Run(os.Args)
 }

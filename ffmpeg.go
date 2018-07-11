@@ -4,11 +4,16 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path"
 
+	"github.com/auroralaboratories/freedesktop"
 	"github.com/faiface/beep"
 	"github.com/ghetzel/argonaut"
+	"github.com/ghetzel/go-stockutil/executil"
 	"github.com/ghetzel/go-stockutil/log"
+	"github.com/ghetzel/go-stockutil/stringutil"
 )
 
 var i2fFactor = (1.0 / 256)
@@ -77,30 +82,31 @@ type ffmpeg struct {
 }
 
 type decode struct {
-	cmd    *exec.Cmd
-	source io.ReadCloser
-	cmdout io.ReadCloser
-	cmdin  io.WriteCloser
-	err    error
-	pos    int
+	cmd         *executil.Cmd
+	source      io.ReadCloser
+	outFilename string
+	out         *os.File
+	cmdin       io.WriteCloser
+	err         error
+	pos         int
 }
 
-func newDecodeStream(cmd *exec.Cmd, source io.ReadCloser) (*decode, beep.Format, error) {
+func newDecodeStream(cmd *exec.Cmd, source io.ReadCloser, dest string) (*decode, beep.Format, error) {
 	decoder := &decode{
-		cmd:    cmd,
-		source: source,
+		cmd:         executil.Wrap(cmd),
+		source:      source,
+		outFilename: dest,
+	}
+
+	log.Debugf("command: %v", cmd.Args)
+
+	decoder.cmd.OnComplete = func(status executil.Status) {
+		os.Remove(decoder.outFilename)
 	}
 
 	// wire up file input
 	if in, err := cmd.StdinPipe(); err == nil {
 		decoder.cmdin = in
-	} else {
-		return nil, beep.Format{}, err
-	}
-
-	// wire up decoded output
-	if out, err := cmd.StdoutPipe(); err == nil {
-		decoder.cmdout = out
 	} else {
 		return nil, beep.Format{}, err
 	}
@@ -130,7 +136,16 @@ func (self *decode) Stream(samples [][2]float64) (int, bool) {
 	sz := len(samples) * 2 * 2
 	data := make([]byte, sz)
 
-	if n, err := self.cmdout.Read(data); err == nil {
+	if self.out == nil {
+		if out, err := os.Open(self.outFilename); err == nil {
+			self.out = out
+		} else {
+			defer self.Close()
+			return 0, false
+		}
+	}
+
+	if n, err := self.out.Read(data); err == nil {
 		if n == sz {
 			return self.populateSamples(samples, data)
 		} else {
@@ -190,37 +205,52 @@ func (self *decode) Seek(p int) error {
 }
 
 func (self *decode) Close() error {
+	if self.out != nil {
+		self.out.Close()
+		self.out = nil
+	}
+
 	return self.cmd.Process.Kill()
 }
 
 func ffmpegDecode(readCloser io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
-	if cmd, err := argonaut.Command(&ffmpeg{
-		Global: &GlobalOptions{
-			LogLevel:  `24`,
-			Overwrite: true,
-		},
-		Input: &InputOptions{
-			URL: `pipe:0`,
-		},
-		Output: &OutputOptions{
-			CommonOptions: CommonOptions{
-				Codecs: []CodecOptions{
-					{
-						Stream: `a`,
-						Codec:  `pcm_u16le`,
+	if out, err := freedesktop.GetCacheFilename(
+		fmt.Sprintf("moped/%v.dat", stringutil.UUID().Base58()),
+	); err == nil {
+		if err := os.MkdirAll(path.Dir(out), 0700); err == nil {
+			if cmd, err := argonaut.Command(&ffmpeg{
+				Global: &GlobalOptions{
+					LogLevel:  `24`,
+					Overwrite: true,
+				},
+				Input: &InputOptions{
+					URL: `pipe:0`,
+				},
+				Output: &OutputOptions{
+					CommonOptions: CommonOptions{
+						Codecs: []CodecOptions{
+							{
+								Stream: `a`,
+								Codec:  `pcm_u16le`,
+							},
+						},
+						Format: `u16le`,
+						FormatOptions: map[string]interface{}{
+							`ac`: 2,
+							`ar`: 44100,
+						},
 					},
+					Parameters: []string{`-strict`, `-2`},
+					URL:        out,
 				},
-				Format: `u16le`,
-				FormatOptions: map[string]interface{}{
-					`ac`: 2,
-					`ar`: 44100,
-				},
-			},
-			Parameters: []string{`-strict`, `-2`},
-			URL:        `pipe:1`,
-		},
-	}); err == nil {
-		return newDecodeStream(cmd, readCloser)
+			}); err == nil {
+				return newDecodeStream(cmd, readCloser, out)
+			} else {
+				return nil, beep.Format{}, err
+			}
+		} else {
+			return nil, beep.Format{}, err
+		}
 	} else {
 		return nil, beep.Format{}, err
 	}

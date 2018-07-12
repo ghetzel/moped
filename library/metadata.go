@@ -1,6 +1,8 @@
 package library
 
-import "time"
+import (
+	"time"
+)
 
 type Metadata struct {
 	Title    string                 `json:"title,omitempty"`

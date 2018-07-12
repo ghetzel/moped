@@ -1,8 +1,8 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -101,6 +101,29 @@ func main() {
 					}
 				} else {
 					log.Fatalf("Must specify a PATH to play")
+				}
+			},
+		}, {
+			Name:      `probe`,
+			Usage:     `Probe the metadata for the given file`,
+			ArgsUsage: `PATH`,
+			Action: func(c *cli.Context) {
+				if uri := c.Args().First(); uri != `` {
+					if entry, err := application.Get(uri); err == nil {
+						if metadata, err := application.GetMetadata(entry); err == nil {
+							if output, err := json.MarshalIndent(metadata, ``, `  `); err == nil {
+								fmt.Println(string(output))
+							} else {
+								log.Fatal(err)
+							}
+						} else {
+							log.Fatal(err)
+						}
+					} else {
+						log.Fatal(err)
+					}
+				} else {
+					log.Fatalf("Must specify a PATH to probe")
 				}
 			},
 		},

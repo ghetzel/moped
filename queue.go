@@ -97,6 +97,14 @@ func (self *Queue) HasNext() bool {
 	return false
 }
 
+func (self *Queue) Peek() (*library.Entry, bool) {
+	if (self.current + 1) < len(self.Items) {
+		return self.Items[self.current+1], true
+	}
+
+	return nil, false
+}
+
 func (self *Queue) JumpAndPlay(i int) error {
 	if i < len(self.Items) {
 		if err := self.Jump(i); err == nil {

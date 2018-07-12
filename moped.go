@@ -84,6 +84,19 @@ func NewMoped() *Moped {
 		aboutToEndDuration: (3 * time.Second),
 		onAudioAboutToEnd: func(m *Moped) {
 			log.Debugf("Audio about to end")
+
+			if m.autoAdvance {
+				if seq, ok := m.playing.Stream.(*StreamSequence); ok {
+					if next, ok := m.queue.Peek(); ok {
+						if stream, _, err := ffmpegDecode(next); err == nil {
+							seq.SetNextStream(stream)
+							log.Debugf("Prepared next entry for gapless decoding")
+						} else {
+							log.Errorf("failed to prepare next entry: %v", err)
+						}
+					}
+				}
+			}
 		},
 	}
 

@@ -18,11 +18,10 @@ import (
 )
 
 type PlayableAudio struct {
-	Entry    *library.Entry
-	Stream   beep.StreamSeekCloser
-	Format   beep.Format
-	Control  *beep.Ctrl
-	PlayChan chan struct{}
+	Entry   *library.Entry
+	Stream  beep.StreamSeekCloser
+	Format  beep.Format
+	Control *beep.Ctrl
 }
 
 func (self *Moped) GetMetadata(reader io.Reader) (*library.Metadata, error) {
@@ -139,13 +138,28 @@ func (self *Moped) PlayAndWait(entry *library.Entry) error {
 	return self.play(entry, true)
 }
 
-func (self *Moped) play(entry *library.Entry, block bool) error {
+func (self *Moped) playable() *PlayableAudio {
+	self.playLock.Lock()
+	defer self.playLock.Unlock()
+
 	if self.playing != nil {
+		return self.playing
+	} else {
+		return nil
+	}
+}
+
+func (self *Moped) play(entry *library.Entry, block bool) error {
+	if p := self.playable(); p != nil {
 		self.Stop()
 	}
 
 	if entry.Type != library.AudioEntry {
 		return fmt.Errorf("Can only play audio entries")
+	}
+
+	if self.state == StatePlaying {
+		return fmt.Errorf("Already playing something else")
 	}
 
 	audio := &PlayableAudio{
@@ -155,10 +169,11 @@ func (self *Moped) play(entry *library.Entry, block bool) error {
 	if stream, format, err := ffmpegDecode(entry); err == nil {
 		audio.Stream = NewStreamSequence(stream)
 		audio.Format = format
-		audio.PlayChan = make(chan struct{})
 
 		if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)); err == nil {
+			self.playLock.Lock()
 			self.playing = audio
+			self.playLock.Unlock()
 
 			if block {
 				self.playAudio()
@@ -176,22 +191,23 @@ func (self *Moped) play(entry *library.Entry, block bool) error {
 }
 
 func (self *Moped) playAudio() {
-	if self.playing != nil {
-		self.playing.Control = &beep.Ctrl{
-			Streamer: beep.Seq(self.playing.Stream, beep.Callback(func() {
+	if p := self.playable(); p != nil {
+		p.Control = &beep.Ctrl{
+			Streamer: beep.Seq(p.Stream, beep.Callback(func() {
 				self.Stop()
+				self.playChan <- true
 			})),
 		}
 
-		speaker.Play(self.playing.Control)
+		speaker.Play(p.Control)
 		self.setState(StatePlaying)
 
 		if self.onAudioStart != nil {
 			self.onAudioStart(self)
 		}
 
-		<-self.playing.PlayChan
-		self.playing = nil
+		<-self.playChan
+		p = nil
 
 		if self.onAudioEnd != nil {
 			self.onAudioEnd(self)
@@ -208,27 +224,27 @@ func (self *Moped) Resume() error {
 }
 
 func (self *Moped) Position() time.Duration {
-	if self.playing != nil {
-		ss := self.playing.Stream
-		return self.playing.Format.SampleRate.D(ss.Position())
+	if p := self.playable(); p != nil {
+		ss := p.Stream
+		return p.Format.SampleRate.D(ss.Position())
 	}
 
 	return 0
 }
 
 func (self *Moped) Length() time.Duration {
-	if self.playing != nil {
-		ss := self.playing.Stream
-		return self.playing.Format.SampleRate.D(ss.Len())
+	if p := self.playable(); p != nil {
+		ss := p.Stream
+		return p.Format.SampleRate.D(ss.Len())
 	}
 
 	return 0
 }
 
 func (self *Moped) Seek(offset time.Duration) error {
-	if self.playing != nil {
-		ss := self.playing.Stream
-		sampleOffset := self.playing.Format.SampleRate.N(offset)
+	if p := self.playable(); p != nil {
+		ss := p.Stream
+		sampleOffset := p.Format.SampleRate.N(offset)
 		length := ss.Len()
 
 		if sampleOffset > length {
@@ -242,9 +258,9 @@ func (self *Moped) Seek(offset time.Duration) error {
 }
 
 func (self *Moped) setPaused(on bool) error {
-	if self.playing != nil {
+	if p := self.playable(); p != nil {
 		speaker.Lock()
-		self.playing.Control.Paused = on
+		p.Control.Paused = on
 
 		if on {
 			self.setState(StatePaused)
@@ -260,14 +276,15 @@ func (self *Moped) setPaused(on bool) error {
 }
 
 func (self *Moped) Stop() error {
-	if self.playing != nil {
+	if p := self.playable(); p != nil {
 		go func() {
-			close(self.playing.PlayChan)
+			self.playLock.Lock()
 			self.playing = nil
 			self.setState(StateStopped)
+			self.playLock.Unlock()
 		}()
 
-		return self.playing.Stream.Close()
+		return p.Stream.Close()
 	}
 
 	return nil

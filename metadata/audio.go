@@ -1,8 +1,6 @@
 package metadata
 
 import (
-	"time"
-
 	"github.com/wtolson/go-taglib"
 )
 
@@ -35,7 +33,7 @@ func (self AudioLoader) LoadMetadata(name string) (map[string]interface{}, error
 				`track`:      self.metadata.Track(),
 				`year`:       self.metadata.Year(),
 				`comment`:    self.metadata.Comment(),
-				`duration`:   (self.metadata.Length() / time.Millisecond),
+				`duration`:   self.metadata.Length(),
 				`bitrate`:    self.metadata.Bitrate(),
 				`channels`:   self.metadata.Channels(),
 				`samplerate`: self.metadata.Samplerate(),

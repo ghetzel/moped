@@ -51,6 +51,7 @@ func GetLoaders() LoaderSet {
 				&FileLoader{},
 				&RegexLoader{},
 				&MediaLoader{},
+				&AudioLoader{},
 				&YTDLLoader{},
 			},
 		}, {
@@ -58,7 +59,6 @@ func GetLoaders() LoaderSet {
 			Checksum: true,
 			Finalize: true,
 			Loaders: []Loader{
-				&AudioLoader{},
 				&VideoLoader{},
 			},
 		},

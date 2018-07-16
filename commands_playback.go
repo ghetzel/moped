@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ghetzel/go-stockutil/typeutil"
+	"github.com/ghetzel/moped/library"
 )
 
 func (self *Moped) cmdToggles(c *cmd) *reply {
@@ -39,7 +40,7 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 
 	self.autoAdvance = (c.Command != `stop`)
 
-	switch c.Command {
+	switch command := c.Command; command {
 	case `next`:
 		err = self.queue.Next()
 
@@ -53,8 +54,15 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 			err = self.Resume()
 		}
 	case `play`, `playid`:
-		if arg.Value != nil {
-			if err := self.queue.Jump(int(arg.Int())); err != nil {
+		if !arg.IsNil() {
+			switch command {
+			case `playid`:
+				err = self.queue.JumpID(library.EntryID(arg.Int()))
+			default:
+				err = self.queue.Jump(int(arg.Int()))
+			}
+
+			if err != nil {
 				return NewReply(c, err)
 			}
 		}
@@ -69,8 +77,15 @@ func (self *Moped) cmdPlayControl(c *cmd) *reply {
 			return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
 		}
 
-		if id := int(arg.Int()); id > 0 {
-			if err := self.queue.Jump(id); err != nil {
+		if !arg.IsNil() {
+			switch command {
+			case `seekid`:
+				err = self.queue.JumpID(library.EntryID(arg.Int()))
+			default:
+				err = self.queue.Jump(int(arg.Int()))
+			}
+
+			if err != nil {
 				return NewReply(c, err)
 			}
 		}

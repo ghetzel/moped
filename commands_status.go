@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -44,9 +45,12 @@ func (self *Moped) cmdStatus(c *cmd) *reply {
 		`mixrampdb`:      `0.000000`,
 		`state`:          self.state,
 		`song`:           self.queue.Index(),
-		`songid`:         self.queue.Index(),
-		`nextsong`:       4,
-		`nextsongid`:     5,
+		`songid`:         self.queue.CurrentID(),
+	}
+
+	if next, ok := self.queue.Peek(); ok {
+		data[`nextsong`] = self.queue.Index() + 1
+		data[`nextsongid`] = next.ID()
 	}
 
 	switch self.state {
@@ -98,7 +102,7 @@ func (self *Moped) cmdCurrentSong(c *cmd) *reply {
 		}
 
 		status[`Pos`] = self.queue.Index()
-		status[`Id`] = self.queue.Index()
+		status[`Id`] = current.ID()
 
 		return NewReply(c, status)
 	} else {
@@ -155,5 +159,15 @@ func (self *Moped) cmdStats(c *cmd) *reply {
 //                    this event is only emitted when the queue is empty
 //
 func (self *Moped) cmdIdle(c *cmd) *reply {
-	return NewReply(c, fmt.Errorf("Not Implemented"))
+	if client := c.Client; client != nil {
+		for {
+			if changes := client.RetrieveAndClearSubsystems(); len(changes) > 0 {
+				return NewReply(c, `changed: `+strings.Join(changes, ` `))
+			}
+
+			time.Sleep(125 * time.Millisecond)
+		}
+	}
+
+	return NewReply(c, fmt.Errorf("client unavailable"))
 }

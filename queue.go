@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path"
+	"time"
 
 	"github.com/ghetzel/go-stockutil/log"
+	"github.com/ghetzel/go-stockutil/utils"
 	"github.com/ghetzel/moped/library"
 )
 
@@ -26,11 +29,13 @@ func (self *itemInfo) String() string {
 		out += fmt.Sprintf("Title: %v\n", path.Base(self.Path))
 	}
 
-	out += fmt.Sprintf("Time: %d\n", 0)
-	out += fmt.Sprintf("duration: %f\n", 0.0)
+	sec := float64(self.Duration() / time.Second)
+
+	out += fmt.Sprintf("Time: %d\n", int(sec))
+	out += fmt.Sprintf("duration: %f\n", sec)
 
 	out += fmt.Sprintf("Pos: %d\n", self.index)
-	out += fmt.Sprintf("Id: %d\n", self.index)
+	out += fmt.Sprintf("Id: %d\n", self.ID())
 
 	return out
 }
@@ -39,13 +44,25 @@ type Queue struct {
 	Items       library.EntryList
 	current     int
 	application *Moped
+	nextid      int
 }
 
 func NewQueue(app *Moped) *Queue {
 	return &Queue{
 		Items:       make(library.EntryList, 0),
 		application: app,
+		nextid:      1,
 	}
+}
+
+func (self *Queue) CurrentURIs() []string {
+	uris := make([]string, 0)
+
+	for _, entry := range self.Items {
+		uris = append(uris, entry.FullPath())
+	}
+
+	return uris
 }
 
 func (self *Queue) Len() int {
@@ -61,6 +78,14 @@ func (self *Queue) Current() (*library.Entry, bool) {
 		return self.Items[self.current], true
 	} else {
 		return nil, false
+	}
+}
+
+func (self *Queue) CurrentID() library.EntryID {
+	if current, ok := self.Current(); ok {
+		return current.ID()
+	} else {
+		return 0
 	}
 }
 
@@ -125,7 +150,9 @@ func (self *Queue) JumpAndPlay(i int) error {
 }
 
 func (self *Queue) Jump(index int) error {
-	if index < 0 {
+	defer self.application.saveState()
+
+	if index <= 0 {
 		self.current = 0
 	} else if index >= len(self.Items) {
 		return fmt.Errorf("Cannot jump beyond end of queue")
@@ -136,19 +163,49 @@ func (self *Queue) Jump(index int) error {
 	return nil
 }
 
+func (self *Queue) JumpID(id library.EntryID) error {
+	if info, ok := self.GetID(id); ok {
+		return self.Jump(info.index)
+	} else {
+		return fmt.Errorf("Could not locate entry %v", id)
+	}
+}
+
 func (self *Queue) Remove(start int, end int) error {
+	defer self.application.AddChangedSubsystem(`playlist`)
+	defer self.application.saveState()
+
 	return fmt.Errorf("Not Implemented")
+}
+
+func (self *Queue) RemoveID(id library.EntryID) error {
+	if info, ok := self.GetID(id); ok {
+		return self.Remove(info.index, -1)
+	} else {
+		return fmt.Errorf("Could not locate entry %v", id)
+	}
 }
 
 func (self *Queue) Move(start int, end int, to int) error {
+	defer self.application.AddChangedSubsystem(`playlist`)
+	defer self.application.saveState()
+
 	return fmt.Errorf("Not Implemented")
 }
 
-func (self *Queue) Info() []itemInfo {
-	items := make([]itemInfo, len(self.Items))
+func (self *Queue) MoveID(from library.EntryID, to int) error {
+	if info, ok := self.GetID(from); ok {
+		return self.Move(info.index, -1, to)
+	} else {
+		return fmt.Errorf("Could not locate entry %v", to)
+	}
+}
+
+func (self *Queue) Info() []*itemInfo {
+	items := make([]*itemInfo, len(self.Items))
 
 	for i, entry := range self.Items {
-		items[i] = itemInfo{
+		items[i] = &itemInfo{
 			Entry: entry,
 			index: i,
 		}
@@ -157,41 +214,97 @@ func (self *Queue) Info() []itemInfo {
 	return items
 }
 
-func (self *Queue) Insert(uri string, position int) error {
-	if entries, err := self.application.Browse(uri); err == nil {
-		var pre library.EntryList
-		var post library.EntryList
-
-		if position >= 0 && position < len(self.Items) {
-			pre = self.Items[0:position]
-			copy(post, self.Items[position:])
-			self.Items = pre
-		}
-
-		for _, entry := range entries {
-			if entry.IsContent() {
-				self.Items = append(self.Items, entry)
-			}
-		}
-
-		if len(post) > 0 {
-			self.Items = append(self.Items, post...)
-		}
-
-		return nil
-	} else {
-		return err
+func (self *Queue) Get(i int) (*itemInfo, bool) {
+	if i < len(self.Items) {
+		return &itemInfo{
+			Entry: self.Items[i],
+			index: i,
+		}, true
 	}
+
+	return nil, false
+}
+
+func (self *Queue) GetID(id library.EntryID) (*itemInfo, bool) {
+	if id == math.MaxUint32 {
+		return self.Get(0)
+	}
+
+	for i, entry := range self.Items {
+		if entry.ID() == id {
+			return &itemInfo{
+				Entry: entry,
+				index: i,
+			}, true
+		}
+	}
+
+	return nil, false
+}
+
+func (self *Queue) Clear() error {
+	defer self.application.AddChangedSubsystem(`playlist`)
+	defer self.application.saveState()
+
+	self.Items = nil
+	return nil
+}
+
+func (self *Queue) Insert(position int, uris ...string) error {
+	var multierr error
+
+	defer self.application.AddChangedSubsystem(`playlist`)
+	defer self.application.saveState()
+
+	for _, uri := range uris {
+		if entries, err := self.application.Browse(uri); err == nil {
+			var pre library.EntryList
+			var post library.EntryList
+
+			if position >= 0 && position < len(self.Items) {
+				pre = self.Items[0:position]
+				copy(post, self.Items[position:])
+				self.Items = pre
+			}
+
+			for _, entry := range entries {
+				if entry.IsContent() {
+					self.Items = append(self.Items, entry)
+				}
+			}
+
+			if len(post) > 0 {
+				self.Items = append(self.Items, post...)
+			}
+		} else {
+			multierr = utils.AppendError(multierr, err)
+		}
+	}
+
+	for i, item := range self.Items {
+		ii := itemInfo{
+			Entry: item,
+			index: i,
+		}
+
+		log.Debugf("pl(%d): %s", i, ii.String())
+	}
+
+	return multierr
 }
 
 func (self *Queue) Append(uri string) error {
-	return self.Insert(uri, -1)
+	return self.Insert(-1, uri)
 }
 
 func (self *Queue) Swap(i int, j int) error {
+	defer self.application.AddChangedSubsystem(`playlist`)
+
 	return fmt.Errorf("Not Implemented")
 }
 
 func (self *Queue) Shuffle() error {
+	defer self.application.AddChangedSubsystem(`playlist`)
+
 	return fmt.Errorf("Not Implemented")
 }

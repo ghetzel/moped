@@ -69,6 +69,13 @@ func (self *StreamSequence) Seek(p int) error {
 
 func (self *StreamSequence) Close() error {
 	if stream, ok := self.stream(); ok {
+		defer func() {
+			if self.next != nil {
+				self.next.Close()
+				self.next = nil
+			}
+		}()
+
 		return stream.Close()
 	} else {
 		return nil

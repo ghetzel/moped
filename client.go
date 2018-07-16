@@ -6,6 +6,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/stringutil"
@@ -15,9 +16,10 @@ import (
 var rxWhitespace = regexp.MustCompile(`\s+`)
 
 type Client struct {
-	id   string
-	app  *Moped
-	conn net.Conn
+	id                string
+	app               *Moped
+	conn              net.Conn
+	changedSubsystems sync.Map
 }
 
 func NewClient(app *Moped, conn net.Conn) *Client {
@@ -26,6 +28,26 @@ func NewClient(app *Moped, conn net.Conn) *Client {
 		app:  app,
 		conn: conn,
 	}
+}
+
+func (self *Client) AddChangedSubsystem(subsystem string) {
+	self.changedSubsystems.Store(subsystem, true)
+}
+
+func (self *Client) RetrieveAndClearSubsystems() []string {
+	changes := make([]string, 0)
+
+	self.changedSubsystems.Range(func(key interface{}, _ interface{}) bool {
+		if k := key.(string); k != `` {
+			changes = append(changes, k)
+		}
+
+		return true
+	})
+
+	self.changedSubsystems = sync.Map{}
+
+	return changes
 }
 
 func (self *Client) ID() string {
@@ -66,6 +88,7 @@ CommandLoop:
 			command := &cmd{
 				Command:   c,
 				Arguments: args,
+				Client:    self,
 			}
 
 			switch c {

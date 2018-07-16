@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/sliceutil"
 	"github.com/ghetzel/go-stockutil/stringutil"
@@ -14,6 +15,7 @@ type cmd struct {
 	Command   string
 	Arguments []string
 	Reply     *reply
+	Client    *Client
 }
 
 func (self *cmd) Arg(i int) typeutil.Variant {
@@ -87,10 +89,16 @@ func (self *reply) stringify(in interface{}) string {
 			})
 		} else if typeutil.IsArray(in) {
 			for _, v := range sliceutil.Sliceify(in) {
-				out = append(out, self.stringify(v))
+				vStr := strings.TrimSpace(self.stringify(v))
+				out = append(out, vStr)
 			}
-		} else if s, err := stringutil.ToString(in); err == nil && s != `` {
-			out = []string{s}
+
+		} else if s, err := stringutil.ToString(in); err == nil {
+			if s != `` {
+				out = []string{s}
+			}
+		} else {
+			log.Warning(err)
 		}
 	}
 

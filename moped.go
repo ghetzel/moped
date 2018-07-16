@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -11,13 +13,21 @@ import (
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
+	"github.com/ghetzel/go-stockutil/pathutil"
 	"github.com/ghetzel/go-stockutil/stringutil"
+	"github.com/ghetzel/go-stockutil/utils"
 	"github.com/ghetzel/moped/library"
 	"github.com/ghetzel/moped/metadata"
+	"github.com/ghodss/yaml"
 )
 
 var once sync.Once
+var CurrentQueueSyncPath = `~/.config/moped/state.yml`
 
+type SaveState struct {
+	URIs    []string `json:"uris"`
+	Current int      `json:"current"`
+}
 type playmode struct {
 	Consume   bool
 	Random    bool
@@ -40,21 +50,24 @@ const (
 var MonitorInterval = 500 * time.Millisecond
 
 type Moped struct {
-	libraries          map[string]library.Library
-	playing            *PlayableAudio
-	queue              *Queue
-	state              playstate
-	playmode           playmode
-	commands           map[string]cmdHandler
-	clients            sync.Map
-	startedAt          time.Time
-	onAudioStart       Callback
-	onStateChange      StateCallback
-	aboutToEndDuration time.Duration
-	onAudioAboutToEnd  Callback
-	onAudioEnd         Callback
-	aboutToEndFired    bool
-	autoAdvance        bool
+	libraries            map[string]library.Library
+	playing              *PlayableAudio
+	queue                *Queue
+	state                playstate
+	playmode             playmode
+	commands             map[string]cmdHandler
+	clients              sync.Map
+	startedAt            time.Time
+	onAudioStart         Callback
+	onStateChange        StateCallback
+	aboutToEndDuration   time.Duration
+	onAudioAboutToEnd    Callback
+	onAudioEnd           Callback
+	aboutToEndFired      bool
+	autoAdvance          bool
+	currentQueueSyncPath string
+	playLock             sync.Mutex
+	playChan             chan bool
 }
 
 func NewMoped() *Moped {
@@ -63,27 +76,30 @@ func NewMoped() *Moped {
 	})
 
 	moped := &Moped{
-		libraries:   make(map[string]library.Library),
-		state:       StateStopped,
-		autoAdvance: true,
-		onAudioEnd: func(m *Moped) {
-			if m.autoAdvance && m.queue.HasNext() {
-				log.Debugf("Track ended, playing next")
-				m.queue.Next()
-			} else {
-				log.Debugf("Track ended, reached end of queue")
-				m.Stop()
-			}
-		},
-		onStateChange: func(is playstate, was playstate, m *Moped) {
-			log.Debugf("State transition: %v -> %v", was, is)
-		},
+		libraries:            make(map[string]library.Library),
+		state:                StateStopped,
+		autoAdvance:          true,
+		currentQueueSyncPath: CurrentQueueSyncPath,
+		playChan:             make(chan bool),
+
+		// handle audio start reporting
 		onAudioStart: func(m *Moped) {
 			log.Debugf("Playing audio at %vHz", m.playing.Format.SampleRate.N(time.Second))
 		},
+
+		// handle state change reporting
+		onStateChange: func(is playstate, was playstate, m *Moped) {
+			log.Debugf("State transition: %v -> %v", was, is)
+			defer m.AddChangedSubsystem(`player`)
+		},
+
 		aboutToEndDuration: (3 * time.Second),
+
+		// handle gapless audio playback
+		// https://media.giphy.com/media/3oz8xtBx06mcZWoNJm/giphy.gif
 		onAudioAboutToEnd: func(m *Moped) {
 			log.Debugf("Audio about to end")
+			defer m.AddChangedSubsystem(`player`)
 
 			if m.autoAdvance {
 				if seq, ok := m.playing.Stream.(*StreamSequence); ok {
@@ -96,6 +112,17 @@ func NewMoped() *Moped {
 						}
 					}
 				}
+			}
+		},
+
+		// handle track auto-advance and queue completion
+		onAudioEnd: func(m *Moped) {
+			if m.autoAdvance && m.queue.HasNext() {
+				log.Debugf("Track ended, playing next")
+				m.queue.Next()
+			} else {
+				log.Debugf("Track ended, reached end of queue")
+				m.Stop()
 			}
 		},
 	}
@@ -203,6 +230,10 @@ func (self *Moped) AddLibrary(name string, lib library.Library) error {
 }
 
 func (self *Moped) Listen(network string, address string) error {
+	if err := self.loadState(); err != nil {
+		return fmt.Errorf("failed to load saved state: %v", err)
+	}
+
 	if listener, err := net.Listen(network, address); err == nil {
 		self.startedAt = time.Now()
 		go self.monitor()
@@ -306,6 +337,13 @@ func (self *Moped) DropClient(id string) error {
 	}
 }
 
+func (self *Moped) AddChangedSubsystem(subsystem string) {
+	self.clients.Range(func(id interface{}, clientI interface{}) bool {
+		clientI.(*Client).AddChangedSubsystem(subsystem)
+		return true
+	})
+}
+
 func (self *Moped) handleClient(conn net.Conn) {
 	client := NewClient(self, conn)
 	self.clients.Store(client.ID(), client)
@@ -351,4 +389,75 @@ func (self *Moped) setState(state playstate) {
 	if self.onStateChange != nil {
 		self.onStateChange(self.state, was, self)
 	}
+}
+
+func (self *Moped) saveState() error {
+	if filename := self.currentQueueSyncPath; filename != `` {
+		if filename, err := pathutil.ExpandUser(filename); err == nil {
+			if file, err := os.Create(filename); err == nil {
+				defer file.Close()
+
+				if data, err := yaml.Marshal(&SaveState{
+					URIs:    self.queue.CurrentURIs(),
+					Current: self.queue.Index(),
+				}); err == nil {
+					_, err := file.Write(data)
+					return err
+				} else {
+					return err
+				}
+			} else {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		return nil
+	}
+}
+
+func (self *Moped) loadState() error {
+	if filename := self.currentQueueSyncPath; filename != `` {
+		if filename, err := pathutil.ExpandUser(filename); err == nil {
+			if file, err := os.Open(filename); err == nil {
+				var saved SaveState
+
+				if data, err := ioutil.ReadAll(file); err == nil {
+					if err := yaml.Unmarshal(data, &saved); err == nil {
+						return self.applyState(&saved)
+					} else {
+						return err
+					}
+				} else {
+					return err
+				}
+			} else if os.IsNotExist(err) {
+				return nil
+			} else {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		return nil
+	}
+}
+
+func (self *Moped) applyState(state *SaveState) error {
+	var multierr error
+
+	// clear and load playlist, jump to correct entry
+	if err := self.queue.Clear(); err == nil {
+		if err := self.queue.Insert(-1, state.URIs...); err == nil {
+			multierr = utils.AppendError(multierr, self.queue.Jump(state.Current))
+		} else {
+			multierr = utils.AppendError(multierr, err)
+		}
+	} else {
+		multierr = utils.AppendError(multierr, err)
+	}
+
+	return multierr
 }

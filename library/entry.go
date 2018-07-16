@@ -8,9 +8,11 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/typeutil"
+	"github.com/spaolacci/murmur3"
 )
 
 type EntryOrder string
@@ -25,6 +27,8 @@ const (
 	OrderRandomGroupYears              = `random-by-year`
 )
 
+type EntryID uint32
+
 type Entry struct {
 	Path            string    `json:"path"`
 	Type            EntryType `json:"type,omitempty"`
@@ -33,6 +37,10 @@ type Entry struct {
 	sortKeyOverride string
 	source          io.ReadCloser
 	parent          string
+}
+
+func (self *Entry) ID() EntryID {
+	return EntryID(murmur3.Sum32([]byte(self.Path)))
 }
 
 func (self *Entry) SetParentPath(path string) {
@@ -48,7 +56,7 @@ func (self *Entry) FullPath() string {
 }
 
 func (self *Entry) String() string {
-	out := fmt.Sprintf("[% 8v] %v", self.Type, self.FullPath())
+	out := fmt.Sprintf("[% 8v] %d: %v", self.ID(), self.Type, self.FullPath())
 
 	if self.Metadata.Title != `` {
 		out += ":\nMetadata:\n"
@@ -112,6 +120,10 @@ func (self *Entry) Name() string {
 	} else {
 		return path.Base(self.Path)
 	}
+}
+
+func (self *Entry) Duration() time.Duration {
+	return self.Metadata.Duration
 }
 
 func (self *Entry) Get(field string) typeutil.Variant {

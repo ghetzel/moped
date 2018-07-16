@@ -7,12 +7,12 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/pathutil"
 	"github.com/ghetzel/go-stockutil/stringutil"
-	"github.com/ghetzel/go-stockutil/typeutil"
 	"github.com/ghetzel/moped/library"
 	"github.com/ghetzel/moped/metadata"
 	"github.com/mcuadros/go-defaults"
@@ -145,10 +145,8 @@ func loadMetadata(filename string) library.Metadata {
 		}
 	}
 
-	for key, v := range data {
-		value := typeutil.V(v)
-
-		switch key {
+	for key, value := range maputil.M(data).Map(`media`) {
+		switch k := key.String(); k {
 		case `title`:
 			meta.Title = value.String()
 		case `album`:
@@ -163,12 +161,16 @@ func loadMetadata(filename string) library.Metadata {
 			meta.Year = int(value.Int())
 		case `genre`:
 			meta.Genre = value.String()
+		case `duration`:
+			if duration, ok := value.Value.(time.Duration); ok {
+				meta.Duration = duration
+			}
 		default:
 			if meta.Extra == nil {
 				meta.Extra = make(map[string]interface{})
 			}
 
-			maputil.DeepSet(meta.Extra, strings.Split(key, `.`), v)
+			maputil.DeepSet(meta.Extra, strings.Split(k, `.`), value.Value)
 		}
 	}
 

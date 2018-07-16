@@ -3,25 +3,27 @@ package main
 import (
 	"fmt"
 
+	"github.com/ghetzel/moped/library"
+
 	"github.com/ghetzel/go-stockutil/stringutil"
 )
 
 func (self *Moped) cmdPlaylistQueries(c *cmd) *reply {
-	switch c.Command {
-	case `playlist`, `playlistinfo`:
+	switch command := c.Command; command {
+	case `playlist`:
 		return NewReply(c, self.queue.Info())
 
-	case `playlistid`:
-		items := self.queue.Info()
-
+	case `playlistinfo`, `playlistid`:
 		if v := c.Arg(0); !v.IsNil() {
-			if id := int(v.Int()); id < len(items) {
-				return NewReply(c, items[id])
+			if info, ok := self.queue.Get(int(v.Int())); ok {
+				return NewReply(c, info)
+			} else if info, ok := self.queue.GetID(library.EntryID(v.Int())); command == `playlistid` && ok {
+				return NewReply(c, info)
 			} else {
 				return NewReply(c, fmt.Errorf("No such song"))
 			}
 		} else {
-			return NewReply(c, items)
+			return NewReply(c, self.queue.Info())
 		}
 
 	case `listplaylists`:
@@ -33,7 +35,7 @@ func (self *Moped) cmdPlaylistQueries(c *cmd) *reply {
 
 func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 	var err error
-	switch c.Command {
+	switch command := c.Command; command {
 	case `add`:
 		err = self.queue.Append(c.Arg(0).String())
 
@@ -48,15 +50,17 @@ func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 			position = int(p.Int())
 		}
 
-		err = self.queue.Insert(c.Arg(0).String(), position)
+		err = self.queue.Insert(position, c.Arg(0).String())
 
 	case `clear`:
 		self.Stop()
-		self.queue = NewQueue(self)
+		err = self.queue.Clear()
 
 	case `delete`, `deleteid`:
-		if start, end, rerr := getRangeFromCmd(c); err == nil {
+		if start, end, rerr := getRangeFromCmd(c); rerr == nil {
 			err = self.queue.Remove(start, end)
+		} else if id, _, rerr := getEntryIdRangeFromCmd(c); command == `deleteid` && rerr == nil {
+			err = self.queue.RemoveID(id)
 		} else {
 			err = rerr
 		}
@@ -64,7 +68,9 @@ func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
 	case `move`, `moveid`:
 		if len(c.Arguments) < 2 {
 			err = fmt.Errorf("Must specify %q/%q and %q", `FROM`, `START:END`, `TO`)
-		} else if start, end, rerr := getRangeFromCmd(c); err == nil {
+		} else if from, _, rerr := getEntryIdRangeFromCmd(c); command == `moveid` && rerr == nil {
+			err = self.queue.MoveID(from, int(c.Arg(1).Int()))
+		} else if start, end, rerr := getRangeFromCmd(c); rerr == nil {
 			err = self.queue.Move(start, end, int(c.Arg(1).Int()))
 		} else {
 			err = rerr
@@ -116,4 +122,9 @@ func getRangeFromCmd(c *cmd) (int, int, error) {
 	}
 
 	return start, end, nil
+}
+
+func getEntryIdRangeFromCmd(c *cmd) (library.EntryID, library.EntryID, error) {
+	start, end, err := getRangeFromCmd(c)
+	return library.EntryID(start), library.EntryID(end), err
 }

@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/faiface/beep"
+
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/pathutil"
@@ -51,7 +53,8 @@ var MonitorInterval = 500 * time.Millisecond
 
 type Moped struct {
 	libraries            map[string]library.Library
-	playing              *PlayableAudio
+	stream               *StreamSequence
+	format               beep.Format
 	queue                *Queue
 	state                playstate
 	playmode             playmode
@@ -81,15 +84,21 @@ func NewMoped() *Moped {
 		autoAdvance:          true,
 		currentQueueSyncPath: CurrentQueueSyncPath,
 		playChan:             make(chan bool),
+		format: beep.Format{
+			SampleRate:  beep.SampleRate(EncodeSampleRate),
+			NumChannels: 2,
+			Precision:   2,
+		},
 
 		// handle audio start reporting
 		onAudioStart: func(m *Moped) {
-			log.Debugf("Playing audio at %vHz", m.playing.Format.SampleRate.N(time.Second))
+			log.Debugf("Playing audio")
 		},
 
 		// handle state change reporting
 		onStateChange: func(is playstate, was playstate, m *Moped) {
-			log.Debugf("State transition: %v -> %v", was, is)
+			log.Debugf("State transition: %v -> %v (%d/%d)", was, is, m.stream.Position(), m.stream.Len())
+
 			defer m.AddChangedSubsystem(`player`)
 		},
 
@@ -102,14 +111,12 @@ func NewMoped() *Moped {
 			defer m.AddChangedSubsystem(`player`)
 
 			if m.autoAdvance {
-				if seq, ok := m.playing.Stream.(*StreamSequence); ok {
-					if next, ok := m.queue.Peek(); ok {
-						if stream, _, err := ffmpegDecode(next); err == nil {
-							seq.SetNextStream(stream)
-							log.Debugf("Prepared next entry for gapless decoding")
-						} else {
-							log.Errorf("failed to prepare next entry: %v", err)
-						}
+				if next, ok := m.queue.Peek(); ok {
+					if stream, _, err := ffmpegDecode(next); err == nil {
+						m.stream.SetNextStream(stream)
+						log.Debugf("Prepared next entry for gapless decoding")
+					} else {
+						log.Errorf("failed to prepare next entry: %v", err)
 					}
 				}
 			}
@@ -230,6 +237,10 @@ func (self *Moped) AddLibrary(name string, lib library.Library) error {
 }
 
 func (self *Moped) Listen(network string, address string) error {
+	if err := self.setupAudioOutput(); err != nil {
+		return fmt.Errorf("audio setup failed: %v", err)
+	}
+
 	if err := self.loadState(); err != nil {
 		return fmt.Errorf("failed to load saved state: %v", err)
 	}

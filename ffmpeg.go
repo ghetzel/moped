@@ -84,6 +84,7 @@ type decode struct {
 	cmdout io.ReadCloser
 	cmdin  io.WriteCloser
 	err    error
+	length int
 	pos    int
 }
 
@@ -184,11 +185,15 @@ func (self *decode) Err() error {
 }
 
 func (self *decode) Len() int {
-	if duration := self.source.Metadata.Duration; duration > 0 {
-		return int(float64(EncodeSampleRate) * duration.Seconds())
+	if self.length == 0 {
+		if duration := self.source.Metadata.Duration; duration > 0 {
+			self.length = int(float64(EncodeSampleRate) * duration.Seconds())
+		}
+
 	}
 
-	return self.pos
+	log.Debugf("ffmpeg duration %v", self.length)
+	return self.length
 }
 
 func (self *decode) Position() int {
@@ -200,13 +205,13 @@ func (self *decode) Seek(p int) error {
 }
 
 func (self *decode) Close() error {
-	self.cmdin.Close()
-	self.cmdout.Close()
+	defer self.cmdin.Close()
+	defer self.cmdout.Close()
 
 	return self.cmd.Process.Kill()
 }
 
-func ffmpegDecode(entry *library.Entry) (beep.StreamSeekCloser, beep.Format, error) {
+func ffmpegDecode(entry *library.Entry) (*decode, beep.Format, error) {
 	// if out, err := freedesktop.GetCacheFilename(
 	// 	fmt.Sprintf("moped/%v.dat", stringutil.UUID().Base58()),
 	// ); err == nil {

@@ -17,13 +17,6 @@ import (
 	"github.com/ghetzel/moped/library"
 )
 
-type PlayableAudio struct {
-	Entry   *library.Entry
-	Stream  beep.StreamSeekCloser
-	Format  beep.Format
-	Control *beep.Ctrl
-}
-
 func (self *Moped) GetMetadata(reader io.Reader) (*library.Metadata, error) {
 	buffer := bytes.NewBuffer(nil)
 
@@ -130,6 +123,21 @@ func (self *Moped) GetMetadata(reader io.Reader) (*library.Metadata, error) {
 	}
 }
 
+func (self *Moped) setupAudioOutput() error {
+	self.stream = NewStreamSequence(self)
+
+	if err := speaker.Init(self.format.SampleRate, self.format.SampleRate.N(time.Second/10)); err == nil {
+		go speaker.Play(beep.Seq(self.stream, beep.Callback(func() {
+			log.Warningf("Audio stream terminated")
+		})))
+
+		return nil
+	} else {
+		return err
+	}
+
+}
+
 func (self *Moped) Play(entry *library.Entry) error {
 	return self.play(entry, false)
 }
@@ -138,80 +146,21 @@ func (self *Moped) PlayAndWait(entry *library.Entry) error {
 	return self.play(entry, true)
 }
 
-func (self *Moped) playable() *PlayableAudio {
-	self.playLock.Lock()
-	defer self.playLock.Unlock()
-
-	if self.playing != nil {
-		return self.playing
-	} else {
-		return nil
-	}
-}
-
 func (self *Moped) play(entry *library.Entry, block bool) error {
-	if p := self.playable(); p != nil {
-		self.Stop()
-	}
-
 	if entry.Type != library.AudioEntry {
 		return fmt.Errorf("Can only play audio entries")
 	}
 
-	if self.state == StatePlaying {
-		return fmt.Errorf("Already playing something else")
+	if err := self.stream.Close(); err != nil {
+		return fmt.Errorf("failed to stop current stream: %v", err)
 	}
 
-	audio := &PlayableAudio{
-		Entry: entry,
-	}
-
-	if stream, format, err := ffmpegDecode(entry); err == nil {
-		audio.Stream = NewStreamSequence(stream)
-		audio.Format = format
-
-		if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)); err == nil {
-			self.playLock.Lock()
-			self.playing = audio
-			self.playLock.Unlock()
-
-			if block {
-				self.playAudio()
-			} else {
-				go self.playAudio()
-			}
-
-			return nil
-		} else {
-			return err
-		}
+	if stream, _, err := ffmpegDecode(entry); err == nil {
+		self.stream.ReplaceStream(stream)
+		self.setState(StatePlaying)
+		return nil
 	} else {
 		return err
-	}
-}
-
-func (self *Moped) playAudio() {
-	if p := self.playable(); p != nil {
-		p.Control = &beep.Ctrl{
-			Streamer: beep.Seq(p.Stream, beep.Callback(func() {
-				self.Stop()
-				self.playChan <- true
-			})),
-		}
-
-		speaker.Play(p.Control)
-		self.setState(StatePlaying)
-
-		if self.onAudioStart != nil {
-			self.onAudioStart(self)
-		}
-
-		<-self.playChan
-		p = nil
-
-		if self.onAudioEnd != nil {
-			self.onAudioEnd(self)
-		}
 	}
 }
 
@@ -224,68 +173,45 @@ func (self *Moped) Resume() error {
 }
 
 func (self *Moped) Position() time.Duration {
-	if p := self.playable(); p != nil {
-		ss := p.Stream
-		return p.Format.SampleRate.D(ss.Position())
-	}
+	p := self.stream.Position()
+	log.Debugf("pos=%d", p)
 
-	return 0
+	return self.format.SampleRate.D(p)
 }
 
 func (self *Moped) Length() time.Duration {
-	if p := self.playable(); p != nil {
-		ss := p.Stream
-		return p.Format.SampleRate.D(ss.Len())
-	}
+	l := self.stream.Len()
+	log.Debugf("len=%d", l)
 
-	return 0
+	return self.format.SampleRate.D(l)
 }
 
 func (self *Moped) Seek(offset time.Duration) error {
-	if p := self.playable(); p != nil {
-		ss := p.Stream
-		sampleOffset := p.Format.SampleRate.N(offset)
-		length := ss.Len()
+	sampleOffset := self.format.SampleRate.N(offset)
+	length := self.stream.Len()
 
-		if sampleOffset > length {
-			sampleOffset = length
-		}
-
-		return ss.Seek(sampleOffset)
-	} else {
-		return fmt.Errorf("No stream is currently available")
+	if sampleOffset > length {
+		sampleOffset = length
 	}
+
+	return self.stream.Seek(sampleOffset)
 }
 
 func (self *Moped) setPaused(on bool) error {
-	if p := self.playable(); p != nil {
-		speaker.Lock()
-		p.Control.Paused = on
+	self.stream.Mute = on
 
-		if on {
-			self.setState(StatePaused)
-		} else {
-			self.setState(StatePlaying)
-		}
-
-		speaker.Unlock()
-		return nil
+	if on {
+		self.setState(StatePaused)
 	} else {
-		return fmt.Errorf("No stream is currently available")
+		self.setState(StatePlaying)
 	}
+
+	return nil
 }
 
 func (self *Moped) Stop() error {
-	if p := self.playable(); p != nil {
-		go func() {
-			self.playLock.Lock()
-			self.playing = nil
-			self.setState(StateStopped)
-			self.playLock.Unlock()
-		}()
-
-		return p.Stream.Close()
-	}
+	self.stream.ReplaceStream(nil)
+	self.stream.Mute = true
 
 	return nil
 }

@@ -87,23 +87,6 @@ func main() {
 				}
 			},
 		}, {
-			Name:      `play`,
-			Usage:     `Play a given audio file.`,
-			ArgsUsage: `PATH`,
-			Action: func(c *cli.Context) {
-				if uri := c.Args().First(); uri != `` {
-					if entry, err := application.Get(uri); err == nil {
-						if err := application.PlayAndWait(entry); err != nil {
-							log.Fatal(err)
-						}
-					} else {
-						log.Fatal(err)
-					}
-				} else {
-					log.Fatalf("Must specify a PATH to play")
-				}
-			},
-		}, {
 			Name:      `probe`,
 			Usage:     `Probe the metadata for the given file`,
 			ArgsUsage: `PATH`,

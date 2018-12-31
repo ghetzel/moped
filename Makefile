@@ -1,15 +1,17 @@
 .PHONY: test deps
+.EXPORT_ALL_VARIABLES:
+
+GO111MODULE ?= on
+LOCALS      := $(shell find . -type f -name '*.go')
 
 all: fmt deps build
 
 deps:
-	@go list github.com/mjibson/esc || go get github.com/mjibson/esc/...
-	@go list golang.org/x/tools/cmd/goimports || go get golang.org/x/tools/cmd/goimports
 	go generate -x
 	go get .
 
 fmt:
-	goimports -w .
+	gofmt -w .
 	go vet .
 
 test:

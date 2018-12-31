@@ -9,88 +9,92 @@ import (
 )
 
 func (self *Moped) cmdPlaylistQueries(c *cmd) *reply {
-	switch command := c.Command; command {
-	case `playlist`:
-		return NewReply(c, self.queue.Info())
+	return NotImplemented(c)
 
-	case `playlistinfo`, `playlistid`:
-		if v := c.Arg(0); !v.IsNil() {
-			if info, ok := self.queue.Get(int(v.Int())); ok {
-				return NewReply(c, info)
-			} else if info, ok := self.queue.GetID(library.EntryID(v.Int())); command == `playlistid` && ok {
-				return NewReply(c, info)
-			} else {
-				return NewReply(c, fmt.Errorf("No such song"))
-			}
-		} else {
-			return NewReply(c, self.queue.Info())
-		}
+	// switch command := c.Command; command {
+	// case `playlist`:
+	// 	return NewReply(c, self.queue.Info())
 
-	case `listplaylists`:
-		return NewReply(c, nil)
-	default:
-		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
-	}
+	// case `playlistinfo`, `playlistid`:
+	// 	if v := c.Arg(0); !v.IsNil() {
+	// 		if info, ok := self.queue.Get(int(v.Int())); ok {
+	// 			return NewReply(c, info)
+	// 		} else if info, ok := self.queue.GetID(library.EntryID(v.Int())); command == `playlistid` && ok {
+	// 			return NewReply(c, info)
+	// 		} else {
+	// 			return NewReply(c, fmt.Errorf("No such song"))
+	// 		}
+	// 	} else {
+	// 		return NewReply(c, self.queue.Info())
+	// 	}
+
+	// case `listplaylists`:
+	// 	return NewReply(c, nil)
+	// default:
+	// 	return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
+	// }
 }
 
 func (self *Moped) cmdPlaylistControl(c *cmd) *reply {
-	var err error
-	switch command := c.Command; command {
-	case `add`:
-		err = self.queue.Append(c.Arg(0).String())
+	return NotImplemented(c)
 
-	case `addid`:
-		if len(c.Arguments) < 1 {
-			return NewReply(c, fmt.Errorf("Must specify %q", `URI`))
-		}
+	// var err error
+	// switch command := c.Command; command {
+	// case `add`:
+	// 	err = self.queue.Append(c.Arg(0).String())
 
-		position := -1
+	// case `addid`:
+	// 	if len(c.Arguments) < 1 {
+	// 		return NewReply(c, fmt.Errorf("Must specify %q", `URI`))
+	// 	}
 
-		if p := c.Arg(1); !p.IsNil() {
-			position = int(p.Int())
-		}
+	// 	position := -1
 
-		err = self.queue.Insert(position, c.Arg(0).String())
+	// 	if p := c.Arg(1); !p.IsNil() {
+	// 		position = int(p.Int())
+	// 	}
 
-	case `clear`:
-		self.Stop()
-		err = self.queue.Clear()
+	// 	err = self.queue.Insert(position, c.Arg(0).String())
 
-	case `delete`, `deleteid`:
-		if start, end, rerr := getRangeFromCmd(c); rerr == nil {
-			err = self.queue.Remove(start, end)
-		} else if id, _, rerr := getEntryIdRangeFromCmd(c); command == `deleteid` && rerr == nil {
-			err = self.queue.RemoveID(id)
-		} else {
-			err = rerr
-		}
+	// case `clear`:
+	// 	self.Stop()
+	// 	err = self.queue.Clear()
 
-	case `move`, `moveid`:
-		if len(c.Arguments) < 2 {
-			err = fmt.Errorf("Must specify %q/%q and %q", `FROM`, `START:END`, `TO`)
-		} else if from, _, rerr := getEntryIdRangeFromCmd(c); command == `moveid` && rerr == nil {
-			err = self.queue.MoveID(from, int(c.Arg(1).Int()))
-		} else if start, end, rerr := getRangeFromCmd(c); rerr == nil {
-			err = self.queue.Move(start, end, int(c.Arg(1).Int()))
-		} else {
-			err = rerr
-		}
+	// case `delete`, `deleteid`:
+	// 	if start, end, rerr := getRangeFromCmd(c); rerr == nil {
+	// 		err = self.queue.Remove(start, end)
+	// 	} else if id, _, rerr := getEntryIdRangeFromCmd(c); command == `deleteid` && rerr == nil {
+	// 		err = self.queue.RemoveID(id)
+	// 	} else {
+	// 		err = rerr
+	// 	}
 
-	case `shuffle`:
-		err = self.queue.Shuffle()
+	// case `move`, `moveid`:
+	// 	if len(c.Arguments) < 2 {
+	// 		err = fmt.Errorf("Must specify %q/%q and %q", `FROM`, `START:END`, `TO`)
+	// 	} else if from, _, rerr := getEntryIdRangeFromCmd(c); command == `moveid` && rerr == nil {
+	// 		err = self.queue.MoveID(from, int(c.Arg(1).Int()))
+	// 	} else if start, end, rerr := getRangeFromCmd(c); rerr == nil {
+	// 		err = self.queue.Move(start, end, int(c.Arg(1).Int()))
+	// 	} else {
+	// 		err = rerr
+	// 	}
 
-	case `swap`, `swapid`:
-		if len(c.Arguments) < 2 {
-			err = fmt.Errorf("Must specify %q and %q", `SONG1`, `SONG2`)
-		} else {
-			err = self.queue.Swap(
-				int(c.Arg(0).Int()),
-				int(c.Arg(1).Int()),
-			)
-		}
-	}
+	// case `shuffle`:
+	// 	err = self.queue.Shuffle()
 
-	return NewReply(c, err)
+	// case `swap`, `swapid`:
+	// 	if len(c.Arguments) < 2 {
+	// 		err = fmt.Errorf("Must specify %q and %q", `SONG1`, `SONG2`)
+	// 	} else {
+	// 		err = self.queue.Swap(
+	// 			int(c.Arg(0).Int()),
+	// 			int(c.Arg(1).Int()),
+	// 		)
+	// 	}
+	// }
+
+	// return NewReply(c, err)
 }
 
 func getRangeFromCmd(c *cmd) (int, int, error) {

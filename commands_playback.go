@@ -1,108 +1,103 @@
 package main
 
-import (
-	"fmt"
-	"time"
-
-	"github.com/ghetzel/go-stockutil/typeutil"
-	"github.com/ghetzel/moped/library"
-)
-
 func (self *Moped) cmdToggles(c *cmd) *reply {
-	if len(c.Arguments) == 0 {
-		state := typeutil.V(c.Arguments[0]).Bool()
+	return NotImplemented(c)
+	// if len(c.Arguments) == 0 {
+	// 	state := typeutil.V(c.Arguments[0]).Bool()
 
-		switch c.Command {
-		case `consume`:
-			self.playmode.Consume = state
-		case `random`:
-			self.playmode.Random = state
-		case `repeat`:
-			self.playmode.Repeat = state
-		case `single`:
-			self.playmode.Single = state
-		case `crossfade`:
-			self.playmode.Crossfade = int(typeutil.V(c.Arguments[0]).Int())
-		default:
-			return NewReply(c, fmt.Errorf("Unsupported state command %q", c.Command))
-		}
+	// 	switch c.Command {
+	// 	case `consume`:
+	// 		self.playmode.Consume = state
+	// 	case `random`:
+	// 		self.playmode.Random = state
+	// 	case `repeat`:
+	// 		self.playmode.Repeat = state
+	// 	case `single`:
+	// 		self.playmode.Single = state
+	// 	case `crossfade`:
+	// 		self.playmode.Crossfade = int(typeutil.V(c.Arguments[0]).Int())
+	// 	default:
+	// 		return NewReply(c, fmt.Errorf("Unsupported state command %q", c.Command))
+	// 	}
 
-		return NewReply(c, nil)
-	} else {
-		return NewReply(c, fmt.Errorf("wrong number of arguments for %q", c.Command))
-	}
+	// 	return NewReply(c, nil)
+	// } else {
+	// 	return NewReply(c, fmt.Errorf("wrong number of arguments for %q", c.Command))
+	// }
 }
 
 func (self *Moped) cmdPlayControl(c *cmd) *reply {
-	var err error
+	return NotImplemented(c)
 
-	arg := c.Arg(0)
+	// var err error
 
-	self.autoAdvance = (c.Command != `stop`)
+	// arg := c.Arg(0)
 
-	switch command := c.Command; command {
-	case `next`:
-		err = self.queue.Next()
+	// self.autoAdvance = (c.Command != `stop`)
 
-	case `previous`:
-		err = self.queue.Previous()
+	// switch command := c.Command; command {
+	// case `next`:
+	// 	err = self.queue.Next()
 
-	case `pause`:
-		if arg.IsNil() || arg.Bool() {
-			err = self.Pause()
-		} else {
-			err = self.Resume()
-		}
-	case `play`, `playid`:
-		if !arg.IsNil() {
-			switch command {
-			case `playid`:
-				err = self.queue.JumpID(library.EntryID(arg.Int()))
-			default:
-				err = self.queue.Jump(int(arg.Int()))
-			}
+	// case `previous`:
+	// 	err = self.queue.Previous()
 
-			if err != nil {
-				return NewReply(c, err)
-			}
-		}
+	// case `pause`:
+	// 	if arg.IsNil() || arg.Bool() {
+	// 		err = self.Pause()
+	// 	} else {
+	// 		err = self.Resume()
+	// 	}
+	// case `play`, `playid`:
+	// 	if !arg.IsNil() {
+	// 		switch command {
+	// 		case `playid`:
+	// 			err = self.queue.JumpID(library.EntryID(arg.Int()))
+	// 		default:
+	// 			err = self.queue.Jump(int(arg.Int()))
+	// 		}
 
-		err = self.queue.Play()
+	// 		if err != nil {
+	// 			return NewReply(c, err)
+	// 		}
+	// 	}
 
-	case `stop`:
-		err = self.Stop()
+	// 	err = self.queue.Play()
 
-	case `seek`, `seekid`:
-		if len(c.Arguments) < 2 {
-			return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
-		}
+	// case `stop`:
+	// 	err = self.Stop()
 
-		if !arg.IsNil() {
-			switch command {
-			case `seekid`:
-				err = self.queue.JumpID(library.EntryID(arg.Int()))
-			default:
-				err = self.queue.Jump(int(arg.Int()))
-			}
+	// case `seek`, `seekid`:
+	// 	if len(c.Arguments) < 2 {
+	// 		return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
+	// 	}
 
-			if err != nil {
-				return NewReply(c, err)
-			}
-		}
+	// 	if !arg.IsNil() {
+	// 		switch command {
+	// 		case `seekid`:
+	// 			err = self.queue.JumpID(library.EntryID(arg.Int()))
+	// 		default:
+	// 			err = self.queue.Jump(int(arg.Int()))
+	// 		}
 
-		fallthrough
+	// 		if err != nil {
+	// 			return NewReply(c, err)
+	// 		}
+	// 	}
 
-	case `seekcur`:
-		if len(c.Arguments) < 2 {
-			return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
-		}
+	// 	fallthrough
 
-		offset := time.Duration(c.Arg(1).Float()) * time.Second
-		err = self.Seek(offset)
+	// case `seekcur`:
+	// 	if len(c.Arguments) < 2 {
+	// 		return NewReply(c, fmt.Errorf("Must specify %q and %q", `POS`, `TIME`))
+	// 	}
 
-	default:
-		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
-	}
+	// 	offset := time.Duration(c.Arg(1).Float()) * time.Second
+	// 	err = self.Seek(offset)
 
-	return NewReply(c, err)
+	// default:
+	// 	return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))
+	// }
+
+	// return NewReply(c, err)
 }

@@ -40,31 +40,48 @@ func (self *dbEntry) stringEmIfYouGotEm(tag string) string {
 	}
 }
 
+func (self *Moped) entries(c *cmd, exprkey string, values ...string) *reply {
+	var entries library.EntryList
+	var err error
+
+	switch exprkey {
+	case `base`:
+		if len(values) > 0 {
+			entries, err = self.Browse(values[0])
+		} else {
+			entries, err = self.Browse(``)
+		}
+	default:
+		err = fmt.Errorf("Unsupported expression: %v %v", exprkey, values)
+	}
+
+	if err == nil {
+		results := make([]*dbEntry, 0)
+
+		for _, entry := range entries {
+			if !entry.IsHidden() && (entry.IsContainer() || entry.IsContent()) {
+				results = append(results, &dbEntry{
+					Entry: entry,
+				})
+			}
+		}
+
+		return NewReply(c, results)
+	} else {
+		return NewReply(c, err)
+	}
+}
+
 func (self *Moped) cmdDbBrowse(c *cmd) *reply {
 	switch c.Command {
 	case `lsinfo`:
-		if uri := c.Arg(0).String(); uri != `` {
-			if entries, err := self.Browse(uri); err == nil {
-				results := make([]*dbEntry, 0)
-
-				for _, entry := range entries {
-					if !entry.IsHidden() && (entry.IsContainer() || entry.IsContent()) {
-						results = append(results, &dbEntry{
-							Entry: entry,
-						})
-					}
-				}
-
-				return NewReply(c, results)
-			} else {
-				return NewReply(c, err)
-			}
-		} else {
-			return NewReply(c, fmt.Errorf("Must specify %q", `URI`))
-		}
+		return self.entries(c, `base`, c.Arg(0).String())
 
 	case `listplaylistinfo`:
 		return NewReply(c, nil)
+
+	case `find`:
+		return self.entries(c, c.Arguments[0], c.Arguments[1:]...)
 
 	default:
 		return NewReply(c, fmt.Errorf("Unsupported command %q", c.Command))

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"net"
 	"regexp"
@@ -20,6 +21,7 @@ type Client struct {
 	app               *Moped
 	conn              net.Conn
 	changedSubsystems sync.Map
+	noidle            bool
 }
 
 func NewClient(app *Moped, conn net.Conn) *Client {
@@ -66,6 +68,7 @@ func (self *Client) Run() {
 
 	var listCmd *cmd
 	var inList bool
+	var inCmd bool
 
 	banner := NewReply(nil, `OK MPD 0.20.0`)
 	banner.NoTrailer = true
@@ -92,6 +95,9 @@ CommandLoop:
 			}
 
 			switch c {
+			case `noidle`:
+				commands = append(commands, command)
+				inCmd = false
 			case `status`, `outputs`:
 				break
 			default:
@@ -116,41 +122,55 @@ CommandLoop:
 			}
 
 			if !inList {
-				self.app.execute(self.conn, commands)
+				if !inCmd {
+					inCmd = true
 
-				if listCmd != nil {
-					listReply := NewReply(listCmd, ``)
+					go func() {
+						self.app.execute(self.conn, commands)
 
-					for _, c := range commands {
-						switch c.Reply.Directive {
-						case CloseConnection:
-							log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
-							return
-						}
+						defer func() {
+							inCmd = false
+						}()
 
-						listReply.AddReply(c.Reply)
-					}
+						if listCmd != nil {
+							listReply := NewReply(listCmd, ``)
 
-					if err := self.writeReply(self.conn, listReply); err == nil {
-						listCmd = nil
-						commands = nil
-					} else {
-						return
-					}
-				} else {
-					for _, c := range commands {
-						switch c.Reply.Directive {
-						case CloseConnection:
-							log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
-							return
-						}
+							for _, c := range commands {
+								switch c.Reply.Directive {
+								case CloseConnection:
+									log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
+									return
+								}
 
-						if err := self.writeReply(self.conn, c.Reply); err == nil {
-							commands = nil
+								listReply.AddReply(c.Reply)
+							}
+
+							if err := self.writeReply(self.conn, listReply); err == nil {
+								listCmd = nil
+								commands = nil
+							} else {
+								return
+							}
 						} else {
-							return
+							for _, c := range commands {
+								switch c.Reply.Directive {
+								case CloseConnection:
+									log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
+									return
+								}
+
+								if err := self.writeReply(self.conn, c.Reply); err == nil {
+									commands = nil
+								} else {
+									return
+								}
+							}
 						}
-					}
+					}()
+				} else if err := self.writeReply(self.conn, NewReply(command, fmt.Errorf("Another command is running"))); err == nil {
+					commands = nil
+				} else {
+					return
 				}
 			}
 		}
@@ -184,6 +204,8 @@ func (self *Client) writeReply(w io.Writer, reply *reply) error {
 	}
 
 	out := []byte(body + "\n")
+
+	log.Dumpf("reply: %v", out)
 
 	_, err := w.Write(out)
 	return err

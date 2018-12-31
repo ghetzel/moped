@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/go-stockutil/sliceutil"
 	"github.com/ghetzel/go-stockutil/stringutil"
@@ -47,6 +46,10 @@ func NewReply(cmd *cmd, body interface{}) *reply {
 		Command: cmd,
 		Body:    body,
 	}
+}
+
+func NotImplemented(cmd *cmd) *reply {
+	return NewReply(cmd, fmt.Errorf("Command %q not implemented", cmd.Command))
 }
 
 func (self *reply) IsError() bool {
@@ -97,8 +100,6 @@ func (self *reply) stringify(in interface{}) string {
 			if s != `` {
 				out = []string{s}
 			}
-		} else {
-			log.Warning(err)
 		}
 	}
 

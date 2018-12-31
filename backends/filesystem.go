@@ -145,6 +145,8 @@ func loadMetadata(filename string) library.Metadata {
 		}
 	}
 
+	meta.LastModified = maputil.M(data).Time(`file.modified_at`)
+
 	for key, value := range maputil.M(data).Map(`media`) {
 		switch k := key.String(); k {
 		case `title`:

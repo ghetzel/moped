@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ghetzel/go-stockutil/sliceutil"
 )
 
 type cmdHandler func(*cmd) *reply
@@ -36,78 +38,80 @@ type cmdHandler func(*cmd) *reply
 func (self *Moped) cmdStatus(c *cmd) *reply {
 	data := map[string]interface{}{
 		`volume`:         -1,
-		`repeat`:         b2i(self.playmode.Repeat),
-		`random`:         b2i(self.playmode.Random),
-		`single`:         b2i(self.playmode.Single),
-		`consume`:        b2i(self.playmode.Consume),
+		`repeat`:         b2i(false), // b2i(self.playmode.Repeat),
+		`random`:         b2i(false), // b2i(self.playmode.Random),
+		`single`:         b2i(false), // b2i(self.playmode.Single),
+		`consume`:        b2i(false), // b2i(self.playmode.Consume),
 		`playlist`:       1,
-		`playlistlength`: self.queue.Len(),
+		`playlistlength`: 0, // self.queue.Len(),
 		`mixrampdb`:      `0.000000`,
-		`state`:          self.state,
-		`song`:           self.queue.Index(),
-		`songid`:         self.queue.CurrentID(),
+		`state`:          `stop`,
+		`song`:           0,
+		`songid`:         0,
 	}
 
-	if next, ok := self.queue.Peek(); ok {
-		data[`nextsong`] = self.queue.Index() + 1
-		data[`nextsongid`] = next.ID()
-	}
+	// if next, ok := self.queue.Peek(); ok {
+	// 	data[`nextsong`] = self.queue.Index() + 1
+	// 	data[`nextsongid`] = next.ID()
+	// }
 
-	switch self.state {
-	case StatePlaying, StatePaused:
-		position := self.Position()
-		length := self.Length()
+	// switch self.state {
+	// case StatePlaying, StatePaused:
+	// 	position := self.Position()
+	// 	length := self.Length()
 
-		data[`time`] = fmt.Sprintf(
-			"%d:%d",
-			int(position.Truncate(time.Second)/time.Second),
-			int(length.Truncate(time.Second)/time.Second),
-		)
-		data[`elapsed`] = float64(position / time.Second)
-		data[`duration`] = float64(length / time.Second)
-	}
+	// 	data[`time`] = fmt.Sprintf(
+	// 		"%d:%d",
+	// 		int(position.Truncate(time.Second)/time.Second),
+	// 		int(length.Truncate(time.Second)/time.Second),
+	// 	)
+	// 	data[`elapsed`] = float64(position / time.Second)
+	// 	data[`duration`] = float64(length / time.Second)
+	// }
 
 	return NewReply(c, data)
 }
 
 func (self *Moped) cmdCurrentSong(c *cmd) *reply {
-	status := make(map[string]interface{})
+	return NotImplemented(c)
 
-	if current, ok := self.queue.Current(); ok {
-		status[`file`] = current.Path
+	// status := make(map[string]interface{})
 
-		if v := current.Metadata.Year; v > 0 {
-			status[`Date`] = v
-		}
+	// if current, ok := self.queue.Current(); ok {
+	// 	status[`file`] = current.Path
 
-		if v := current.Metadata.Track; v > 0 {
-			status[`Track`] = v
-		}
+	// 	if v := current.Metadata.Year; v > 0 {
+	// 		status[`Date`] = v
+	// 	}
 
-		if v := current.Metadata.Album; v != `` {
-			status[`Album`] = v
-		}
+	// 	if v := current.Metadata.Track; v > 0 {
+	// 		status[`Track`] = v
+	// 	}
 
-		if v := current.Metadata.Artist; v != `` {
-			status[`Artist`] = v
-		}
+	// 	if v := current.Metadata.Album; v != `` {
+	// 		status[`Album`] = v
+	// 	}
 
-		if v := current.Metadata.Title; v != `` {
-			status[`Title`] = v
-		}
+	// 	if v := current.Metadata.Artist; v != `` {
+	// 		status[`Artist`] = v
+	// 	}
 
-		if v := current.Metadata.Duration; v > 0 {
-			status[`Time`] = int(v.Round(time.Second) / time.Second)
-			status[`duration`] = float64(v.Round(time.Millisecond) / time.Millisecond)
-		}
+	// 	if v := current.Metadata.Title; v != `` {
+	// 		status[`Title`] = v
+	// 	}
 
-		status[`Pos`] = self.queue.Index()
-		status[`Id`] = current.ID()
+	// 	if v := current.Metadata.Duration; v > 0 {
+	// 		status[`Time`] = int(v.Round(time.Second) / time.Second)
+	// 		status[`duration`] = float64(v.Round(time.Millisecond) / time.Millisecond)
+	// 	}
 
-		return NewReply(c, status)
-	} else {
-		return NewReply(c, nil)
-	}
+	// 	status[`Pos`] = self.queue.Index()
+	// 	status[`Id`] = current.ID()
+
+	// 	return NewReply(c, status)
+	// } else {
+	// 	return NewReply(c, nil)
+	// }
 }
 
 func b2i(in bool) int {
@@ -160,13 +164,30 @@ func (self *Moped) cmdStats(c *cmd) *reply {
 //
 func (self *Moped) cmdIdle(c *cmd) *reply {
 	if client := c.Client; client != nil {
-		for {
+		defer func() {
+			client.noidle = false
+		}()
+
+		for !client.noidle {
 			if changes := client.RetrieveAndClearSubsystems(); len(changes) > 0 {
 				return NewReply(c, `changed: `+strings.Join(changes, ` `))
 			}
 
+			if sliceutil.ContainsString(c.Arguments, `noidle`) || sliceutil.ContainsString(c.Arguments, `database`) {
+				return NewReply(c, nil)
+			}
+
 			time.Sleep(125 * time.Millisecond)
 		}
+	}
+
+	return NewReply(c, fmt.Errorf("client unavailable"))
+}
+
+func (self *Moped) cmdNoIdle(c *cmd) *reply {
+	if client := c.Client; client != nil {
+		client.noidle = true
+		return NewReply(c, nil)
 	}
 
 	return NewReply(c, fmt.Errorf("client unavailable"))

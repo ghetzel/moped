@@ -3,15 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/faiface/beep"
-	"github.com/faiface/beep/speaker"
 	"github.com/ghetzel/go-stockutil/log"
 	"github.com/ghetzel/go-stockutil/maputil"
 	"github.com/ghetzel/moped/library"
@@ -121,97 +118,4 @@ func (self *Moped) GetMetadata(reader io.Reader) (*library.Metadata, error) {
 	} else {
 		return nil, err
 	}
-}
-
-func (self *Moped) setupAudioOutput() error {
-	self.stream = NewStreamSequence(self)
-
-	if err := speaker.Init(self.format.SampleRate, self.format.SampleRate.N(time.Second/10)); err == nil {
-		go speaker.Play(beep.Seq(self.stream, beep.Callback(func() {
-			log.Warningf("Audio stream terminated")
-		})))
-
-		return nil
-	} else {
-		return err
-	}
-
-}
-
-func (self *Moped) Play(entry *library.Entry) error {
-	return self.play(entry, false)
-}
-
-func (self *Moped) PlayAndWait(entry *library.Entry) error {
-	return self.play(entry, true)
-}
-
-func (self *Moped) play(entry *library.Entry, block bool) error {
-	if entry.Type != library.AudioEntry {
-		return fmt.Errorf("Can only play audio entries")
-	}
-
-	if err := self.stream.Close(); err != nil {
-		return fmt.Errorf("failed to stop current stream: %v", err)
-	}
-
-	if stream, _, err := ffmpegDecode(entry); err == nil {
-		self.stream.ReplaceStream(stream)
-		self.setState(StatePlaying)
-		return nil
-	} else {
-		return err
-	}
-}
-
-func (self *Moped) Pause() error {
-	return self.setPaused(true)
-}
-
-func (self *Moped) Resume() error {
-	return self.setPaused(false)
-}
-
-func (self *Moped) Position() time.Duration {
-	p := self.stream.Position()
-	log.Debugf("pos=%d", p)
-
-	return self.format.SampleRate.D(p)
-}
-
-func (self *Moped) Length() time.Duration {
-	l := self.stream.Len()
-	log.Debugf("len=%d", l)
-
-	return self.format.SampleRate.D(l)
-}
-
-func (self *Moped) Seek(offset time.Duration) error {
-	sampleOffset := self.format.SampleRate.N(offset)
-	length := self.stream.Len()
-
-	if sampleOffset > length {
-		sampleOffset = length
-	}
-
-	return self.stream.Seek(sampleOffset)
-}
-
-func (self *Moped) setPaused(on bool) error {
-	self.stream.Mute = on
-
-	if on {
-		self.setState(StatePaused)
-	} else {
-		self.setState(StatePlaying)
-	}
-
-	return nil
-}
-
-func (self *Moped) Stop() error {
-	self.stream.ReplaceStream(nil)
-	self.stream.Mute = true
-
-	return nil
 }

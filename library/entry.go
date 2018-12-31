@@ -52,7 +52,7 @@ func (self *Entry) SetMimeType(mimetype string) {
 }
 
 func (self *Entry) FullPath() string {
-	return `/` + strings.TrimPrefix(path.Join(`/`, self.parent, self.Path), `/`)
+	return strings.TrimPrefix(path.Join(`/`, self.parent, self.Path), `/`)
 }
 
 func (self *Entry) String() string {
@@ -142,6 +142,8 @@ func (self *Entry) Get(field string) typeutil.Variant {
 		} else {
 			return typeutil.V(nil)
 		}
+	case `last-modified`:
+		return typeutil.V(self.Metadata.LastModified)
 
 	default:
 		if v := self.M().Get(field); !v.IsNil() {

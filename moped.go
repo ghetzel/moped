@@ -19,10 +19,11 @@ import (
 var once sync.Once
 
 type Moped struct {
-	libraries map[string]library.Library
-	commands  map[string]cmdHandler
-	clients   sync.Map
-	startedAt time.Time
+	FlattenLibraries bool `json:"flatten_libraries"`
+	libraries        map[string]library.Library
+	commands         map[string]cmdHandler
+	clients          sync.Map
+	startedAt        time.Time
 }
 
 func NewMoped() *Moped {
@@ -177,7 +178,13 @@ func (self *Moped) Browse(entryPath string) (library.EntryList, error) {
 		sort.Strings(keys)
 
 		for _, name := range keys {
-			if _, ok := self.libraries[name]; ok {
+			if self.FlattenLibraries {
+				if topLevelEntries, err := self.Browse(name); err == nil {
+					libraries = append(libraries, topLevelEntries...)
+				} else {
+					return nil, err
+				}
+			} else if _, ok := self.libraries[name]; ok {
 				libraries = append(libraries, &library.Entry{
 					Path: `/` + name,
 					Type: library.FolderEntry,

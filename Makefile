@@ -8,14 +8,14 @@ all: fmt deps build
 
 deps:
 	go generate -x
-	go get .
+	go get ./...
 
 fmt:
-	gofmt -w .
-	go vet .
+	gofmt -w $(LOCALS)
+	go vet ./...
 
 test:
-	go test -race .
+	go test -race ./...
 
 build: fmt
-	go build -i -o bin/moped .
+	go build -i -o bin/moped ./cmd/moped/

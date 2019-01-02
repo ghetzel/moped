@@ -1,4 +1,4 @@
-package moped
+package main
 
 import (
 	"encoding/json"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/ghetzel/cli"
 	"github.com/ghetzel/go-stockutil/log"
+	"github.com/ghetzel/moped"
 )
 
 type OnQuitFunc func() // {}
@@ -18,10 +19,9 @@ func main() {
 	app := cli.NewApp()
 	app.Name = `moped`
 	app.Usage = `A pluggable protocol-compatible implementation of Media Player Daemon (MPD).`
-	app.Version = `0.0.1`
-	app.EnableBashCompletion = false
+	app.Version = moped.Version
 
-	var application *Moped
+	var application *moped.Moped
 
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -45,10 +45,10 @@ func main() {
 	app.Before = func(c *cli.Context) error {
 		log.SetLevelString(c.String(`log-level`))
 
-		if config, err := LoadConfigFromFile(c.String(`config`)); err == nil {
-			application = NewMoped()
+		if config, err := moped.LoadConfigFromFile(c.String(`config`)); err == nil {
+			application = moped.NewMoped()
 
-			if libraries, err := GetLibrariesFromConfig(config); err == nil {
+			if libraries, err := moped.GetLibrariesFromConfig(config); err == nil {
 				for name, lib := range libraries {
 					if err := application.AddLibrary(name, lib); err != nil {
 						return err

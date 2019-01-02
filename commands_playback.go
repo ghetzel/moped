@@ -1,4 +1,4 @@
-package main
+package moped
 
 func (self *Moped) cmdToggles(c *cmd) *reply {
 	return NotImplemented(c)

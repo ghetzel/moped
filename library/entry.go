@@ -31,6 +31,7 @@ type EntryID uint32
 
 type Entry struct {
 	Path            string    `json:"path"`
+	Filename        string    `json:"-"`
 	Type            EntryType `json:"type,omitempty"`
 	Metadata        Metadata  `json:"metadata"`
 	mimeOverride    string
@@ -49,6 +50,14 @@ func (self *Entry) SetParentPath(path string) {
 
 func (self *Entry) SetMimeType(mimetype string) {
 	self.mimeOverride = mimetype
+}
+
+func (self *Entry) FileRetrievalPath() string {
+	if fn := self.Filename; fn != `` {
+		return fn
+	} else {
+		return self.FullPath()
+	}
 }
 
 func (self *Entry) FullPath() string {
@@ -128,7 +137,14 @@ func (self *Entry) Duration() time.Duration {
 
 func (self *Entry) Get(field string) typeutil.Variant {
 	switch f := strings.ToLower(field); f {
-	case `filename`, `path`:
+	case `filename`:
+		if fn := self.Filename; fn != `` {
+			return typeutil.V(fn)
+		} else {
+			return typeutil.V(self.FullPath())
+		}
+
+	case `path`:
 		return typeutil.V(self.FullPath())
 
 	case `name`:

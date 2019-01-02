@@ -20,7 +20,7 @@ func (self *dbEntry) String() string {
 	case library.PlaylistEntry:
 		out += fmt.Sprintf("playlist: %v\n", self.FullPath())
 	default:
-		out += fmt.Sprintf("file: %v\n", self.FullPath())
+		out += fmt.Sprintf("file: %v\n", self.FileRetrievalPath())
 	}
 
 	out += self.stringEmIfYouGotEm(`Last-Modified`)

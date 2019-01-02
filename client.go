@@ -105,7 +105,7 @@ CommandLoop:
 			case `status`, `outputs`:
 				break
 			default:
-				log.Debugf("[%v] CMD: %v", self.ID(), line)
+				// log.Debugf("[%v] CMD: %v", self.ID(), line)
 			}
 
 			switch c {
@@ -212,7 +212,7 @@ func (self *Client) pushReply(r *reply) {
 func (self *Client) runReplyLoop() {
 	for r := range self.replychan {
 		if err := self.writeReply(self.conn, r); err != nil {
-			log.Errorf("[%v] %v", self.ID(), err)
+			// log.Errorf("[%v] %v", self.ID(), err)
 			self.Close()
 			return
 		}

@@ -25,6 +25,8 @@ func (self *cmd) Arg(i int) typeutil.Variant {
 	}
 }
 
+type cmdset []*cmd
+
 type ConnectionDirective int
 
 const (

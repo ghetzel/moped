@@ -46,6 +46,7 @@ func NewMoped() *Moped {
 		`listplaylistinfo`: moped.cmdDbBrowse,
 		`listplaylists`:    moped.cmdPlaylistQueries,
 		`lsinfo`:           moped.cmdDbBrowse,
+		`list`:             moped.cmdDbBrowse,
 		`notcommands`:      moped.cmdReflectNotCommands,
 		`outputs`:          moped.cmdAudio,
 		`password`:         moped.cmdConnection,
@@ -249,6 +250,7 @@ func (self *Moped) executeCommand(w io.Writer, c *cmd) *reply {
 	if handler, ok := self.commands[c.Command]; ok {
 		return handler(c)
 	} else {
+		log.Errorf("Unsupported command '%v'", c.Command)
 		return NewReply(c, fmt.Errorf("Unsupported command '%v'", c.Command))
 	}
 }

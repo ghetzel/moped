@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/ghetzel/go-stockutil/sliceutil"
 )
 
 type cmdHandler func(*cmd) *reply
@@ -164,21 +162,21 @@ func (self *Moped) cmdStats(c *cmd) *reply {
 //
 func (self *Moped) cmdIdle(c *cmd) *reply {
 	if client := c.Client; client != nil {
+		client.idle = true
+
 		defer func() {
-			client.noidle = false
+			client.idle = false
 		}()
 
-		for !client.noidle {
+		for client.idle {
 			if changes := client.RetrieveAndClearSubsystems(); len(changes) > 0 {
 				return NewReply(c, `changed: `+strings.Join(changes, ` `))
+			} else {
+				time.Sleep(125 * time.Millisecond)
 			}
-
-			if sliceutil.ContainsString(c.Arguments, `noidle`) || sliceutil.ContainsString(c.Arguments, `database`) {
-				return NewReply(c, nil)
-			}
-
-			time.Sleep(125 * time.Millisecond)
 		}
+
+		return NewReply(c, nil)
 	}
 
 	return NewReply(c, fmt.Errorf("client unavailable"))
@@ -186,7 +184,7 @@ func (self *Moped) cmdIdle(c *cmd) *reply {
 
 func (self *Moped) cmdNoIdle(c *cmd) *reply {
 	if client := c.Client; client != nil {
-		client.noidle = true
+		client.idle = false
 		return NewReply(c, nil)
 	}
 

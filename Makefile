@@ -18,4 +18,4 @@ test:
 	go test -race .
 
 build: fmt
-	go build -i -o bin/`basename ${PWD}` .
+	go build -i -o bin/moped .

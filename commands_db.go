@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ghetzel/moped/library"
 )
@@ -33,11 +34,15 @@ func (self *dbEntry) String() string {
 }
 
 func (self *dbEntry) stringEmIfYouGotEm(tag string) string {
-	if v := self.Get(tag).String(); v != `` {
-		return fmt.Sprintf("%v: %v\n", tag, v)
-	} else {
-		return ``
+	if v := self.Get(tag); !v.IsNil() {
+		if tm, ok := v.Value.(time.Time); ok {
+			return fmt.Sprintf("%v: %v\n", tag, tm.Format(time.RFC3339))
+		} else if vS := v.String(); vS != `` {
+			return fmt.Sprintf("%v: %v\n", tag, v)
+		}
 	}
+
+	return ``
 }
 
 func (self *Moped) entries(c *cmd, exprkey string, values ...string) *reply {
@@ -76,6 +81,9 @@ func (self *Moped) cmdDbBrowse(c *cmd) *reply {
 	switch c.Command {
 	case `lsinfo`:
 		return self.entries(c, `base`, c.Arg(0).String())
+
+	case `list`:
+		return NewReply(c, nil)
 
 	case `listplaylistinfo`:
 		return NewReply(c, nil)

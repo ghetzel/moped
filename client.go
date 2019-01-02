@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"net"
 	"regexp"
@@ -21,14 +20,20 @@ type Client struct {
 	app               *Moped
 	conn              net.Conn
 	changedSubsystems sync.Map
-	noidle            bool
+	idle              bool
+	running           bool
+	cmdchan           chan cmdset
+	replychan         chan *reply
 }
 
 func NewClient(app *Moped, conn net.Conn) *Client {
 	return &Client{
-		id:   stringutil.UUID().String(),
-		app:  app,
-		conn: conn,
+		id:        stringutil.UUID().String(),
+		app:       app,
+		conn:      conn,
+		running:   true,
+		cmdchan:   make(chan cmdset),
+		replychan: make(chan *reply),
 	}
 }
 
@@ -57,6 +62,10 @@ func (self *Client) ID() string {
 }
 
 func (self *Client) Close() error {
+	self.idle = false
+	self.running = false
+
+	close(self.replychan)
 	return self.conn.Close()
 }
 
@@ -64,19 +73,17 @@ func (self *Client) Run() {
 	defer self.app.DropClient(self.ID())
 
 	scanner := bufio.NewScanner(self.conn)
-	commands := make([]*cmd, 0)
+	commands := make(cmdset, 0)
+
+	go self.runReplyLoop()
 
 	var listCmd *cmd
 	var inList bool
-	var inCmd bool
 
 	banner := NewReply(nil, `OK MPD 0.20.0`)
 	banner.NoTrailer = true
 
-	if err := self.writeReply(self.conn, banner); err != nil {
-		log.Error(err)
-		return
-	}
+	self.pushReply(banner)
 
 CommandLoop:
 	for scanner.Scan() {
@@ -95,9 +102,6 @@ CommandLoop:
 			}
 
 			switch c {
-			case `noidle`:
-				commands = append(commands, command)
-				inCmd = false
 			case `status`, `outputs`:
 				break
 			default:
@@ -113,6 +117,9 @@ CommandLoop:
 				listCmd = command
 				inList = true
 				continue CommandLoop
+			case `noidle`:
+				self.idle = false
+				continue CommandLoop
 			}
 
 			if c != `command_list_end` {
@@ -122,56 +129,11 @@ CommandLoop:
 			}
 
 			if !inList {
-				if !inCmd {
-					inCmd = true
-
-					go func() {
-						self.app.execute(self.conn, commands)
-
-						defer func() {
-							inCmd = false
-						}()
-
-						if listCmd != nil {
-							listReply := NewReply(listCmd, ``)
-
-							for _, c := range commands {
-								switch c.Reply.Directive {
-								case CloseConnection:
-									log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
-									return
-								}
-
-								listReply.AddReply(c.Reply)
-							}
-
-							if err := self.writeReply(self.conn, listReply); err == nil {
-								listCmd = nil
-								commands = nil
-							} else {
-								return
-							}
-						} else {
-							for _, c := range commands {
-								switch c.Reply.Directive {
-								case CloseConnection:
-									log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
-									return
-								}
-
-								if err := self.writeReply(self.conn, c.Reply); err == nil {
-									commands = nil
-								} else {
-									return
-								}
-							}
-						}
-					}()
-				} else if err := self.writeReply(self.conn, NewReply(command, fmt.Errorf("Another command is running"))); err == nil {
-					commands = nil
-				} else {
-					return
-				}
+				go self.execute(commands, listCmd)
+				commands = nil
+				listCmd = nil
+			} else {
+				log.Debugf("Command appended to list-in-progress")
 			}
 		}
 	}
@@ -205,8 +167,54 @@ func (self *Client) writeReply(w io.Writer, reply *reply) error {
 
 	out := []byte(body + "\n")
 
-	log.Dumpf("reply: %v", out)
+	// log.Dumpf("reply: %v", out)
 
 	_, err := w.Write(out)
 	return err
+}
+
+func (self *Client) execute(commands cmdset, listCmd *cmd) {
+	self.app.execute(self.conn, commands)
+
+	if listCmd != nil {
+		listReply := NewReply(listCmd, ``)
+
+		for _, c := range commands {
+			switch c.Reply.Directive {
+			case CloseConnection:
+				log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
+				return
+			}
+
+			listReply.AddReply(c.Reply)
+		}
+
+		self.pushReply(listReply)
+	} else {
+		for _, c := range commands {
+			switch c.Reply.Directive {
+			case CloseConnection:
+				log.Warningf("Client %v closed connection", self.conn.RemoteAddr())
+				return
+			}
+
+			self.pushReply(c.Reply)
+		}
+	}
+}
+
+func (self *Client) pushReply(r *reply) {
+	if self.running && r != nil {
+		self.replychan <- r
+	}
+}
+
+func (self *Client) runReplyLoop() {
+	for r := range self.replychan {
+		if err := self.writeReply(self.conn, r); err != nil {
+			log.Errorf("[%v] %v", self.ID(), err)
+			self.Close()
+			return
+		}
+	}
 }

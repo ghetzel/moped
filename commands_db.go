@@ -57,7 +57,7 @@ func (self *Moped) entries(c *cmd, exprkey string, values ...string) *reply {
 			entries, err = self.Browse(``)
 		}
 	default:
-		err = fmt.Errorf("Unsupported expression: %v %v", exprkey, values)
+		return NewReply(c, nil)
 	}
 
 	if err == nil {

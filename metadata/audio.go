@@ -1,19 +1,29 @@
 package metadata
 
 import (
-	"github.com/wtolson/go-taglib"
+	"fmt"
+	"os"
+
+	"github.com/dhowden/tag"
+	"github.com/ghetzel/go-stockutil/maputil"
 )
 
 type AudioLoader struct {
 	Loader
-	metadata *taglib.File
+	format   tag.Format
+	filetype tag.FileType
 	data     map[string]interface{}
 }
 
 func (self AudioLoader) CanHandle(name string) Loader {
-	if f, err := taglib.Read(name); err == nil {
-		return &AudioLoader{
-			metadata: f,
+	if file, err := os.Open(name); err == nil {
+		defer file.Close()
+
+		if format, filetype, err := tag.Identify(file); err == nil {
+			return &AudioLoader{
+				format:   format,
+				filetype: filetype,
+			}
 		}
 	}
 
@@ -21,27 +31,36 @@ func (self AudioLoader) CanHandle(name string) Loader {
 }
 
 func (self AudioLoader) LoadMetadata(name string) (map[string]interface{}, error) {
-	if self.metadata != nil {
-		defer self.metadata.Close()
+	if file, err := os.Open(name); err == nil {
+		defer file.Close()
 
-		self.data = map[string]interface{}{
-			`media`: map[string]interface{}{
-				`artist`:     self.metadata.Artist(),
-				`album`:      self.metadata.Album(),
-				`genre`:      self.metadata.Genre(),
-				`title`:      self.metadata.Title(),
-				`track`:      self.metadata.Track(),
-				`year`:       self.metadata.Year(),
-				`comment`:    self.metadata.Comment(),
-				`duration`:   self.metadata.Length(),
-				`bitrate`:    self.metadata.Bitrate(),
-				`channels`:   self.metadata.Channels(),
-				`samplerate`: self.metadata.Samplerate(),
-			},
+		if metadata, err := tag.ReadFrom(file); err == nil {
+			track, _ := metadata.Track()
+			disc, _ := metadata.Disc()
+			raw := maputil.M(metadata.Raw())
+
+			self.data = map[string]interface{}{
+				`media`: map[string]interface{}{
+					`artist`:     metadata.Artist(),
+					`album`:      metadata.Album(),
+					`genre`:      metadata.Genre(),
+					`title`:      metadata.Title(),
+					`disc`:       disc,
+					`track`:      track,
+					`year`:       metadata.Year(),
+					`comment`:    metadata.Comment(),
+					`bitrate`:    raw.Int(`bitrate`),
+					`channels`:   raw.Int(`channels`),
+					`samplerate`: raw.Int(`samplerate`),
+					// `duration`:   (metadata.Length() / time.Millisecond),
+				},
+			}
+
+			return self.data, nil
+		} else {
+			return nil, fmt.Errorf("parse tags: %v", err)
 		}
-
-		self.metadata = nil
+	} else {
+		return nil, fmt.Errorf("read: %v", err)
 	}
-
-	return self.data, nil
 }
